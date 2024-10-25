@@ -78,7 +78,7 @@ RIDGE_pred <- function(y, x, p, nu, h) {
   Z <- XX[1:(nrow(XX) - h), ]
   
   # Compute the dependent variable for the forecast: Y = (y_{+1} + ... + y_{+h}) / h
-  Y <- filter(y, rep(1/h, h), sides = 1)
+  Y <- stats::filter(y, rep(1/h, h), sides = 1)
   Y <- Y[(h + 1):length(Y)]
   
   # Standardize the dependent variable
@@ -88,7 +88,7 @@ RIDGE_pred <- function(y, x, p, nu, h) {
   
   # Ridge regression: b = inv(Z'Z + nu * I) * Z'y_std
   Z_transpose <- t(Z)
-  ridge_coeff <- solve(Z_transpose %% Z + nu * diag(N)) %% (Z_transpose %*% y_std)
+  ridge_coeff <- solve(Z_transpose %*% Z + nu * diag(N)) %*% (Z_transpose %*% y_std)
   
   # Forecast: pred = XX(end, :) * b * sy + my
   pred <- (XX[nrow(XX), ] %*% ridge_coeff) * sy + my
@@ -128,7 +128,7 @@ SET_ridge <- function(y, x, p, INfit, h) {
     result <- RIDGE_pred(y, x, p, nu_avg, h)
     pred <- result$pred
     b <- result$b
-    IN_avg <- result$IN_avg
+    IN_avg <- result$MSE
     
     if (IN_avg > INfit) {
       nu_min <- nu_min
@@ -151,14 +151,14 @@ SET_ridge <- function(y, x, p, INfit, h) {
 # ---- STANDARDIZATION OF DATA
 
 # correlation among EA countries
-EAdataQ <- select_if(EAdataQ, is.numeric)
+# EAdataQ <- select_if(EAdataQ, is.numeric)
 
-# ---- BAYASIAN SHRINKAGE (RIDGE)
+# ---- BAYASIAN SHRINKAGE 
+
+# (i)RIDGE
 
 # Selezione delle variabili da predire
-# 6   : Produzione industriale (IP)
-# 114 : Indice dei prezzi al consumo (CPI)
-
+# 1   : GDP
 nn <- c(1)
 
 # Parametri
@@ -168,7 +168,7 @@ rr <- c(1, 3, 5, 10, 25, 50, 75)  # Numero di componenti principali
 K <- rr  # Numero di predittori da selezionare tramite Lasso
 INfit <- seq(0.1, 0.9, by = 0.1)  # Proporzione di fit in-sample da spiegare con Ridge
 
-HH <- c(12)  # Numero di step avanti per il forecast
+HH <- c(4)  # Numero di step avanti per il forecast
 
 # Numero di punti temporali per la stima del parametro: schema Rolling
 Jwind <- 68
@@ -191,8 +191,8 @@ series <- colnames(EAdataQ)  # Etichette delle variabili
 # transf <- as.numeric(data_raw[1, -1])  # Indici per le trasformazioni da applicare a ciascuna serie
 
 # Reset delle date e del tempo per eliminare i punti iniziali rimossi
-time <- time[14:length(time)]
-dates <- dates[14:length(dates)]
+# time <- time[14:length(time)]
+# dates <- dates[14:length(dates)]
 
 # Dimensione del pannello
 TT <- nrow(DATA)
@@ -200,6 +200,8 @@ NN <- ncol(DATA)
 
 # Trova quando iniziare l'esercizio out-of-sample simulato
 start_sample <- which(format(time, "%Y") == start_y & format(time, "%m") == start_m)
+start_sample <- 68
+
 if (Jwind > start_sample) {
   stop("la finestra rolling non può essere più grande del primo campione di valutazione")
 }
@@ -209,9 +211,12 @@ cat("\nIl programma sta impostando i parametri di penalizzazione...\n\n")
 j0 <- start_sample - Jwind + 1
 
 x_temp <- DATA[j0:start_sample, ]  # Dati disponibili all'inizio della valutazione out-of-sample
-x <- apply(x_temp, 2, function(col) outliers(col))  # Rimozione degli outliers
+x <- DATA[j0:start_sample, ]  # Dati disponibili all'inizio della valutazione out-of-sample
+# x <- apply(x_temp, 2, function(col) outliers(col))  # Rimozione degli outliers
 
 x[, nn] <- x_temp[, nn]  # Mantiene le variabili selezionate
+x[, nn] <- x [, nn]  # Mantiene le variabili selezionate
+
 
 # Imposta il parametro di penalizzazione RIDGE per spiegare la proporzione INfit di varianza
 nu_ridge <- list()
@@ -222,4 +227,12 @@ for (jfit in seq_along(INfit)) {
     }
   }
 }
+
+#(ii) LASSO
+
+# function -->   pred <- (XX[nrow(XX), ] %*% ridge_coeff) * sy + my
+
+#(iii) PCR
+
+# function -->   pred <- (XX[nrow(XX), ] %*% ridge_coeff) * sy + my
 
