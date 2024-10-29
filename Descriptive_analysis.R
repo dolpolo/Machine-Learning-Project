@@ -2,7 +2,7 @@ getwd()
 path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
 setwd(path)
 
-library(stats)
+library(readxl)
 library(readr)
 library(pracma)
 library(fbi)
@@ -17,6 +17,7 @@ library(zoo)
 
 # ---- LOAD THE DATA (till Covid-19) ----
 EAdataQ <- read_xlsx("data/EA-MD-QD/EAdataQ_LT.xlsx") 
+EAdataQ$Time <- as.Date(EAdataQ$Time)
 EAdataQ <- EAdataQ %>%
   filter(Time <= as.Date("2019-10-01"))
   
