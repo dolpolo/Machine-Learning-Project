@@ -8,8 +8,9 @@ setwd(path)
   
   
 
-
-#================================ RIDGE FUNCTIONS ============================== 
+# ============================================================================ #
+# =============================== RIDGE FUNCTIONS ============================ # 
+# ============================================================================ #
 
 # This section will provide the function to evaluate the bayasian shrinkage mathod under 
 # Gaussian prior. Under this condition the posterior mode is maximized using the ridge
@@ -118,8 +119,9 @@ SET_ridge <- function(y, x, p, INfit, h) {
 
 
 
-
-#================================ LASSO FUNCTIONS ============================== 
+# ==============================================================================
+# =============================== LASSO FUNCTIONS ============================== 
+# ==============================================================================
 
 # This section will provide the function to evaluate the bayasian shrinkage mathod under 
 # double esponential prior. Under this condition the posterior mode is maximized using the LASSO
@@ -129,90 +131,46 @@ SET_ridge <- function(y, x, p, INfit, h) {
 
 # This function will provide the parameters under a double exponential prior
 
-LASSO_pred <- function(y, x, p, nu, h, b_init = NULL) {
-  
-  # Creazione di una matrice temporanea vuota
+LASSO_pred <- function(y, x, p, nu, h) {
+  # Initialize an empty matrix to store lagged predictors
   temp <- NULL
   
-  # Creazione dei predittori con i loro lag
+  # Create lagged predictors: X = [x, x_{-1}, ..., x_{-p}]
   for (j in 0:p) {
     temp <- cbind(temp, x[(p + 1 - j):(nrow(x) - j), ])
   }
   X <- temp
+  
+  # Trim the dependent variable to match the lagged predictors
   y <- y[(p + 1):length(y)]
   
-  # Normalizzazione dei regressori |X| < 1
-  N <- ncol(X)
-  T <- nrow(X)
-  XX <- scale(X, center = TRUE, scale = TRUE) / sqrt(N * T)
   
-  # Regressori usati per calcolare i coefficienti di regressione
-  Z <- XX[1:(nrow(XX) - h), ]
+  # Prepare the predictors for regression: Z = [XX(1:end-h, :)]
+  Z <- X[1:(nrow(X) - h), ]
   
-  # Calcolo della variabile dipendente da predire
-  Y <- filter(y, rep(1/h, h), sides = 1)
+  # Compute the dependent variable for the forecast: Y = (y_{+1} + ... + y_{+h}) / h
+  Y <- stats::filter(y, rep(1/h, h), sides = 1)
   Y <- Y[(h + 1):length(Y)]
   
-  # Standardizzazione della variabile dipendente
+  # Standardize the dependent variable
   my <- mean(Y, na.rm = TRUE)
   sy <- sd(Y, na.rm = TRUE)
   y_std <- (Y - my) / sy
   
-  # Inizializzazione dell'algoritmo Iterative Landweber
-  thresh <- nu / 2
-  tolerance <- 1e-5
-  max_iter <- 10000
-  cont <- 1
-  pred <- 0
-  fit_prev <- 1e+32
-  Dfit <- 1e+32
+  lasso_model <- glmnet(Z, y_std, alpha = 1)
+  lasso_coeff<- coef(lasso_model, s = nu)
   
-  # Inizializzazione dei parametri
-  if (!is.null(b_init)) {
-    b <- b_init
-  } else {
-    b <- matrix(0, N, 1)
-  }
+  pred <- predict(lasso_model, newx = matrix(X[nrow(X), ], nrow = 1), s = nu) * sy + my
   
-  # Iterative Landweber con soft thresholding
-  while (Dfit > tolerance && cont < max_iter) {
-    cont <- cont + 1
-    b_temp <- matrix(0, N, 1)
-    
-    # Landweber iteration
-    temp <- (b - t(Z) %*% Z %*% b + t(Z) %*% y_std)
-    
-    # Soft thresholding
-    keep <- abs(temp) > thresh
-    b_temp[keep] <- temp[keep] - thresh * sign(temp[keep])
-    
-    # Calcolo delle previsioni
-    pred <- (XX[nrow(XX), ] %*% b_temp) * sy + my
-    
-    # Calcolo dell'errore quadratico medio in-sample
-    fit <- var(y_std - Z %*% b_temp)
-    
-    # Verifica della convergenza
-    Dfit <- abs(fit - fit_prev)
-    fit_prev <- fit
-    
-    b <- cbind(b, b_temp)
-  }
   
-  if (cont == max_iter) {
-    message("LASSO: Maximum iteration reached")
-  }
+  return(list(pred = pred, b = lasso_coeff))
   
-  return(list(pred = pred, b = b))
 }
 
 ##################################  SET LASSO ##################################
 
-# This function will select the optimal penalization parameter for each in sample variance
-
 SET_lasso <- function(y, x, p, K, h) {
-  
-  # Inizializzazione dei parametri
+  # Initialize parameters
   nu_min <- 0
   nu_max <- 2
   K_max <- 1e+32
@@ -225,28 +183,186 @@ SET_lasso <- function(y, x, p, K, h) {
     cont <- cont + 1
     nu_avg <- (nu_min + nu_max) / 2
     
-    # Chiamata alla funzione LASSO_pred
-    lasso_result <- LASSO_pred(y, x, p, nu_avg, h)
-    pred <- lasso_result$pred
-    b <- lasso_result$b
+    # Call the LASSO prediction function
+    result <- LASSO_pred(y, x, p, nu_avg, h)
+    pred <- result$pred
+    b <- result$b
     
-    # Conta il numero di coefficienti non nulli
-    K_avg <- sum(b[, ncol(b)] != 0)
+    K_avg <- sum(b[, ncol(b)] != 0)  # Count non-zero coefficients
     
-    # Aggiornamento dei limiti su nu
     if (K_avg < K) {
+      nu_min <- nu_min
       nu_max <- nu_avg
     } else {
       nu_min <- nu_avg
+      nu_max <- nu_max
     }
   }
   
   if (cont >= max_iter) {
-    warning("Warning: max iterations reached when setting the Lasso penalization")
+    warning("Max iterations reached when setting the Lasso penalization")
   }
   
   nu <- nu_avg
-  b <- b[, ncol(b)]
-  
+  b <- b[, ncol(b)]  # Get the last column of b
   return(list(nu = nu, b = b))
+}
+
+# ==============================================================================
+# ================================ LARS FUNCTIONS ============================== 
+# ==============================================================================
+
+LARS_pred <- function(y, x, p, h) {
+  # Creazione di un vettore temporaneo per i predittori e i loro lag
+  temp <- NULL
+  
+  # Mettere insieme i predittori e i loro lag: X = [x x_{-1} ... x_{-p}]
+  for (j in 0:p) {
+    temp <- cbind(temp, x[(p + 1 - j):nrow(x), , drop = FALSE])
+  }
+  
+  # Definire X e normalizzare y
+  X <- temp
+  y <- y[(p + 1):length(y)]
+  
+  # Normalizzare i regressori per avere |X| < 1
+  T <- nrow(X)
+  N <- ncol(X)
+  
+  # Centering e scaling
+  X_centered <- scale(X, center = TRUE, scale = FALSE)
+  X_normalized <- X_centered / sqrt(N * T)
+  
+  # Regressori usati per il calcolo dei coefficienti di regressione
+  Z <- X_normalized[1:(T - h), , drop = FALSE]
+  
+  # Calcolare la variabile dipendente da predire: Y = (y_{+1} + ... + y_{+h}) / h
+  Y <- filter(y, rep(1 / h, h), sides = 1)
+  Y <- Y[(h + 1):length(Y)]
+  
+  # Standardizzare la variabile dipendente
+  my <- mean(Y, na.rm = TRUE)
+  sy <- sd(Y, na.rm = TRUE)
+  y_std <- (Y - my) / sy
+  
+  # Calcolo dei coefficienti di regressione usando lars
+  beta <- lars(Z, y_std)
+  
+  # Calcolare le previsioni
+  pred <- (tail(X_normalized, 1) %*% beta$beta) * sy + my
+  
+  return(list(pred = pred, beta = beta$beta))
+}
+
+
+# ==============================================================================
+# ====================== PRINCIPAL COMPONENT FUNCTIONS =========================
+# ==============================================================================
+
+
+# This function will create lagged predictors, computing principal components for an h-step-ahead forecasts.
+
+PC_pred <- function(y, x, p, r, h) {
+  
+  # Initialize empty list to store lagged predictors
+  temp <- NULL
+  
+  # Create lagged predictors: X = [x, x_{-1}, ..., x_{-p}]
+  for (j in 0:p) {
+    temp <- cbind(temp, x[(p + 1 - j):(nrow(x) - j), ])
+  }
+  X <- temp
+  
+  # Adjust y to match the rows of X
+  y <- y[(p + 1):length(y)]
+  
+  # Standardize predictors
+  XX <- scale(X)
+  
+  # Compute the principal components on standardized predictors
+  pca_res <- prcomp(XX, center = FALSE, scale. = FALSE)  # Use standardized data
+  F <- pca_res$x[, r]  # Principal components
+  Z <- cbind(1, F)  # Add intercept
+  
+  # Compute the dependent variable to predict as the h-step ahead average
+  Y <- stats::filter(y, rep(1/h, h), sides = 1)
+  Y <- Y[(h + 1):length(Y)]  # Adjust length of Y
+  
+  # Fit regression model for forecasting
+  gamma <- solve(t(Z[1:(nrow(Z) - h), ]) %*% Z[1:(nrow(Z) - h), ]) %*% t(Z[1:(nrow(Z) - h), ]) %*% Y
+  
+  # Compute predictions
+  pred <- Z[(nrow(Z)), ] %*% gamma
+  
+  return(list(pred = pred))
+}
+
+
+
+#################################
+
+PCA_pred <- function(y, x, p, r, h) {
+  # Initialize an empty matrix to store lagged predictors
+  temp <- NULL
+  
+  # Create lagged predictors: X = [x, x_{-1}, ..., x_{-p}]
+  for (j in 0:p) {
+    temp <- cbind(temp, x[(p + 1 - j):(nrow(x) - j), ])
+  }
+  X <- temp
+  
+  # Trim the dependent variable to match the lagged predictors
+  y <- y[(p + 1):length(y)]
+  
+  # Normalize the predictors to have |X| < 1
+  T <- nrow(X)
+  N <- ncol(X)
+  XX <- scale(X) / sqrt(N * T)
+  
+  # Prepare the predictors for regression: Z = [XX(1:end-h, :)]
+  Z <- XX[1:(nrow(XX) - h), ]
+  
+  # Compute the dependent variable for the forecast: Y = (y_{+1} + ... + y_{+h}) / h
+  Y <- stats::filter(y, rep(1/h, h), sides = 1)
+  Y <- Y[(h + 1):length(Y)]
+  
+  # Standardize the dependent variable
+  my <- mean(Y, na.rm = TRUE)
+  sy <- sd(Y, na.rm = TRUE)
+  y_std <- (Y - my) / sy
+  
+  # Fit the PCR model
+  PCR_model <- plsr(y_std ~ Z, ncomp = r, center = FALSE)
+  
+  # Extract coefficients
+  pcr_coeff <- coef(PCR_model, ncomp = r)
+  
+  # Predict the last observation
+  pred <- predict(PCR_model, newdata = matrix(X[nrow(X), ], nrow = 1), ncomp = r) * sy + my
+  
+  return(list(pred = pred, b = pcr_coeff))
+}
+
+# ==============================================================================
+# =========================== RANDOM WALK FUNCTIONS ============================
+# ==============================================================================
+
+
+RW_pred <- function(y, h) {
+  # Compute h-step ahead prediction from constant growth model
+  # Input:
+  # y: dependent variable
+  # h: number of steps ahead
+  
+  # Output:
+  # pred: h-step ahead predictions
+  
+  # Compute the variable to be predicted
+  Y <- stats::filter(y, rep(1/h, h), sides = 1)
+  Y <- Y[(h + 1):length(Y)]
+  
+  # Compute the prediction
+  pred <- mean(Y, na.rm = TRUE)
+  
+  return(pred)
 }
