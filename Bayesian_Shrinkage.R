@@ -27,7 +27,7 @@ library(glmnet)
 # using the paper Forecasting using a large number of predictors: Is Bayesian shrinkage a valid
 # alternative to principal components?" on a different dataset on EA countries
 
-# the code compares the perform a comparison between
+# the code compares the performances of
 # RIDGE regression
 # LASSO regression
 # PC regression
@@ -42,21 +42,20 @@ EAdataQ <- EAdataQ %>%
 
 # ---- CALL FUNCTIOINS ----
 # call the Bayesian Shrinkage functions
-lapply(list.files("R/functions/", full.names = TRUE), source)
-
+# lapply(list.files("R/functions/", full.names = TRUE), source)
+source("R/functions/Bayesian_shrinkage_functions.R")
 
 # ---- SET PARAMETERS ----
 # Dependendent variables to be predicted
-nn <- c(1)
+nn <- c(97)
 
 # Parameters
 p <- 0  # Number of lagged predictors
-rr <- c(1, 3, 5, 10, 15, 30, 45)  # Number of principal components
+rr <- c(1, 3, 5, 10, 25, 50, 65)  # Number of principal components
 K <- rr  # Number of predictors with LASSO
 INfit <- seq(0.1, 0.9, by = 0.1)  # In-sample residual variance explained by Ridge
 HH <- c(4)  # Steap-ahead prediction
 Jwind <- 68  # Rolling window
-
 
 # ********************************* IN SAMPLE ******************************** #
 
@@ -238,6 +237,8 @@ for (j in start_sample:(TT - HH)) {
     }
   }
 }
+
+
 
 # ==============================================================================
 # ====================== PRINCIPAL COMPONENT PREDICTION ======================== 
@@ -436,7 +437,7 @@ df_MSFE_PC_long$Column <- factor(df_MSFE_PC_long$Column, levels = c(1, 3, 5, 10,
 ggplot(df_MSFE_PC_long, aes(x = Column, y = Value, group = 1)) +
   geom_line() +  # Linea per i valori
   geom_point() +  # Aggiungi punti per i valori
-  labs(title = "MSFE LASSO",
+  labs(title = "MSFE PC",
        x = "number of predictors with non zero coefficient",
        y = "MSFE") +
   theme_minimal()
@@ -469,7 +470,7 @@ MSFE_RIDGE_ratio <- MSFE_RIDGE / MSFE_r_RW
 
 # *************************** LASSO MFSE vs. RW MSFE ***************************
 # Ridge Output Matrix
-RW_l_output <- do.call(rbind, lapply(RW_l[ind_first:length(RIDGE)], unlist))
+RW_l_output <- do.call(rbind, lapply(RW_l[ind_first:length(LASSO)], unlist))
 
 # Rename rows and columns
 rownames(RW_l_output) <- ind_first:ind_last
@@ -489,53 +490,195 @@ MSFE_LASSO_ratio <- MSFE_LASSO / MSFE_l_RW
 MSFE_PC_ratio <- MSFE_PC / MSFE_l_RW
 
 
+# ==============================================================================
+# ================= VARIABLE FREQUENCY LASSO MODEL SELECTIN  ===================
+# ==============================================================================
 
+# Inizializza un vettore vuoto per raccogliere le variabili
+variabili_combine <- c()
 
-
-
-
-
-
-# ******************************************************************************
-
-# Compute the MSFE for PC regression
-for (jr in 1:length(rr)) {
-  for (h in HH) {
-    for (k in 1:length(nn)) {
-      MSFE_PC[h, k, jr] <- mean((true[[h]][[k]][ind_first:ind_last, ] - PC[[h]][[k]][ind_first:ind_last, jr])^2)
-      VAR_PC[h, k, jr]  <- (sd(PC[[h]][[k]][ind_first:ind_last, jr])^2) / (sd(true[[h]][[k]][ind_first:ind_last, ])^2)
+# Funzione ricorsiva per estrarre le variabili da model_selection
+estrai_model_selection <- function(lista) {
+  if (is.list(lista)) {
+    # Controlla se la lista contiene model_selection
+    if ("model_selection" %in% names(lista)) {
+      variabili_combine <<- c(variabili_combine, lista$model_selection)
+    }
+    # Scorri attraverso gli elementi della lista
+    for (elemento in lista) {
+      estrai_model_selection(elemento)
     }
   }
 }
 
-# Compute the MSFE for 'naive' forecasts
-for (h in HH) {
-  for (k in 1:length(nn)) {
-    MSFE_RW[h, k] <- mean((true[[h]][[k]][ind_first:ind_last, ] - RW[[h]][[k]][ind_first:ind_last, ])^2)
-    VAR_RW[h, k]  <- (sd(RW[[h]][[k]][ind_first:ind_last, ])^2) / (sd(true[[h]][[k]][ind_first:ind_last, ])^2)
-  }
+# Scorri attraverso la megalista e applica la funzione
+for (sub_lista in pred_bl) {
+  estrai_model_selection(sub_lista)
 }
 
-# Compute correlation of Lasso and PC forecasts
-for (jr in 1:length(rr)) {
-  for (jK in 1:length(K)) {
-    for (h in HH) {
-      for (k in 1:length(nn)) {
-        temp <- cor(PC[[h]][[k]][ind_first:ind_last, jr], LASSO[[h]][[k]][ind_first:ind_last, jK])
-        R_LASSO[[h]][[k]][jK, jr] <- temp
-      }
-    }
-  }
-}
+# Calcola la frequenza delle variabili
+frequenze <- table(variabili_combine)
 
-# Compute correlation of RIDGE and PC forecasts
-for (jr in 1:length(rr)) {
-  for (jfit in 1:length(INfit)) {
-    for (h in HH) {
-      for (k in 1:length(nn)) {
-        temp <- cor(PC[[h]][[k]][ind_first:ind_last, jr], RIDGE[[h]][[k]][ind_first:ind_last, jfit])
-        R_RIDGE[[h]][[k]][jfit, jr] <- temp
-      }
-    }
-  }
+# Mostra i risultati
+print(frequenze)
+
+plot(frequenze)
+
+# Calcola la frequenza delle variabili
+frequenze <- table(variabili_combine)
+
+# Trasforma in dataframe
+df_frequenze <- as.data.frame(frequenze)
+
+# Rinomina le colonne per maggiore chiarezza
+colnames(df_frequenze) <- c("Variabile", "Frequenza")
+
+# Ordina il dataframe in base alla frequenza, dalla più alta alla più bassa
+df_frequenze <- df_frequenze[order(-df_frequenze$Frequenza), ]
+
+row.names(df_frequenze) <- 1:nrow(df_frequenze)
+
+df_frequenze <- df_frequenze %>%
+  filter(Frequenza >= 24)
+
+# Crea un grafico a barre
+ggplot(df_frequenze, aes(x = reorder(Variabile, -Frequenza), y = Frequenza)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  coord_flip() +  # Ruota il grafico per una migliore leggibilità
+  labs(title = "Frequenza delle Variabili in model_selection",
+       x = "Variabile",
+       y = "Frequenza") +
+  theme_minimal()
+
+
+# ==============================================================================
+# ========================== PREDICTION VISUALIZATION ========================== 
+# ==============================================================================
+
+# time serires of gdp
+
+EAdataQ_long <- EAdataQ %>%
+  select(Time, GDP_EA)
+ggplot(EAdataQ_long, aes(x = Time, y = GDP_EA)) +
+  geom_line() + 
+  geom_vline(xintercept = as.Date("2017-01-01"), color = "red", linetype = "dashed", linewidth = 1) +
+  labs(title = "Time series of GDP in Euro Area",
+       x = "Year", 
+       y = "GDP in Euro Area") +
+  theme_minimal() 
+
+
+Ridge_opt <- RIDGE_output[,6]
+Ridge_df <- merge(EAdataQ_long, Ridge_opt, by = "row.names")
+
+# Crea Ridge_opt_df con la colonna chiave
+Ridge_opt_df <- data.frame(Row.names = rownames(RIDGE_output), Ridge_opt)
+
+# Assicurati che EAdataQ_long abbia una colonna chiave per fare il join
+EAdataQ_long <- EAdataQ_long %>%
+  mutate(Row.names = rownames(EAdataQ_long))
+
+Ridge_opt_df <- Ridge_opt_df %>%
+  mutate(Ridge_opt = Ridge_opt/4)
+
+# Unisci i dataset
+Ridge_df <- left_join(EAdataQ_long, Ridge_opt_df, by = "Row.names")
+
+
+# Grafico con ggplot
+ggplot(Ridge_df, aes(x = Time)) +
+  geom_line(aes(y = GDP_EA), colour = "blue", linewidth = 0.5) +  # Linea completa del GDP_EA
+  geom_line(aes(y = Ridge_opt), colour = "green", linewidth = 1, na.rm = TRUE) +  # Linea di Ridge_opt solo dove disponibile
+  geom_vline(xintercept = as.Date("2017-01-01"), color = "red", linetype = "dashed", linewidth = 1) +
+  labs(title = "Time series of GDP in Euro Area",
+       x = "Year", 
+       y = "GDP in Euro Area")
+
+
+
+# ==============================================================================
+# ========================== EIGENGAP VISUALIZATION ============================ 
+# ==============================================================================
+
+# Initialize empty matrix for lagged predictors
+temp <- NULL
+
+# Create lagged predictors: X = [x, x_{-1}, ..., x_{-p}]
+for (j in 0:p) {
+  temp <- cbind(temp, x[(p + 1 - j):(nrow(x) - j), ])
 }
+X <- temp
+
+# Adjust y to match the rows of X
+# Uncomment if necessary
+# y <- y[(p + 1):length(y)]
+
+# Standardize predictors
+X_standardized <- scale(X)
+
+# Perform PCA on standardized predictors
+pca_res <- prcomp(X_standardized, center = FALSE, scale. = FALSE)
+
+# Calculate explained variance for each principal component
+explained_variance <- pca_res$sdev^2
+
+# Total variance for normalization
+total_variance <- sum(explained_variance)
+
+# Normalize variance and calculate cumulative variance
+explained_variance_normalized <- explained_variance / total_variance * 100
+cumulative_variance <- cumsum(explained_variance_normalized)
+
+# Plot explained variance with ggplot
+df_variance <- data.frame(PC = seq_along(explained_variance_normalized), Variance = explained_variance_normalized)
+ggplot(df_variance, aes(x = PC, y = Variance)) +
+  geom_bar(stat = "identity", fill = "skyblue", alpha = 0.6, width = 0.7) +
+  geom_line(aes(group = 1), color = "blue", size = 1) +
+  geom_point(color = "blue", size = 2.5) +
+  labs(
+    title = "Explained Variance by Each Principal Component",
+    x = "Principal Components (PC)",
+    y = "Explained Variance (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+# Plot cumulative variance with ggplot
+df_cumulative <- data.frame(PC = seq_along(cumulative_variance), CumulativeVariance = cumulative_variance)
+ggplot(df_cumulative, aes(x = PC, y = CumulativeVariance)) +
+  geom_line(color = "darkorange", size = 1) +
+  geom_point(color = "darkorange", size = 3) +
+  labs(
+    title = "Cumulative Explained Variance by Principal Components",
+    x = "Principal Components (PC)",
+    y = "Cumulative Explained Variance (%)"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10)
+  )
+
+# La varianza cumulata dimostra che ci sta ancora molto da spiegare dopo la prima componente. non è noice
+
+
+# fai il grafico coi l'eigengap tra la prima e la seconda componente.... chissa come se fa
+
+# Calcola l'eigengap
+# eigengap <- diff(varianze)
+
+# Crea il grafico dell'eigengap
+# plot(eigengap, type = "b", pch = 19, col = "red", 
+    #  xlab = "Componenti Principali (PC)", 
+    #  ylab = "Eigengap", 
+    #  main = "Grafico dell'Eigengap")
+
+
+# Interpretations od PC 
+
+pca_res$rotation[,c(1,2,3)]

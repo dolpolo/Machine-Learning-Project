@@ -142,7 +142,7 @@ LASSO_pred <- function(y, x, p, nu, h) {
   X <- temp
   
   # Trim the dependent variable to match the lagged predictors
-  y <- y[(p + 1):length(y)]
+  y <- x[,1][(p + 1):length(x[,1])]
   
   
   # Prepare the predictors for regression: Z = [XX(1:end-h, :)]
@@ -159,11 +159,17 @@ LASSO_pred <- function(y, x, p, nu, h) {
   
   lasso_model <- glmnet(Z, y_std, alpha = 1)
   lasso_coeff<- coef(lasso_model, s = nu)
-  
+
   pred <- predict(lasso_model, newx = matrix(X[nrow(X), ], nrow = 1), s = nu) * sy + my
+
+  # consistency in variable selection
+  # Identify the selected variables (non-zero coefficients)
+  lasso_coeff <- as.matrix(lasso_coeff)
+  selected_variables <- rownames(lasso_coeff)[lasso_coeff != 0]
   
+  selected_variables <- selected_variables[-1]  # Remove the intercept term
   
-  return(list(pred = pred, b = lasso_coeff))
+  return(list(pred = pred, b = lasso_coeff, model_selection = selected_variables ))
   
 }
 
@@ -188,7 +194,7 @@ SET_lasso <- function(y, x, p, K, h) {
     pred <- result$pred
     b <- result$b
     
-    K_avg <- sum(b[, ncol(b)] != 0)  # Count non-zero coefficients
+    K_avg <- sum(b[-1] != 0)  # Count non-zero coefficients
     
     if (K_avg < K) {
       nu_min <- nu_min
