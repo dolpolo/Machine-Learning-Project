@@ -1,14 +1,16 @@
+# ---- Set Directory
 getwd()
 path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
 setwd(path)
 
+# ---- Libraries 
 library(dplyr)
 library(tidyverse)
 library(tseries)
 library(ggplot2)
 library(writexl)
 library(readxl)
-library(lubridate)  # Per la gestione delle date
+library(lubridate)
 library(glmnet)
 
 
@@ -19,9 +21,6 @@ library(glmnet)
 # This code aims to replicate the analysis by Christine De Mol, Domenico Giannone and Lucrezia Reichlin
 # using the paper Forecasting using a large number of predictors: Is Bayesian shrinkage a valid
 # alternative to principal components?" on a different dataset on EA countries
-
-
-################################################################################
 
 # ---- LOAD DATA ----
 # load EA_data untill 2019
@@ -35,16 +34,13 @@ EAdataQ <- EAdataQ %>%
 source("R/functions/FarmSelect_functions.R")
 
 
-################################################################################
-
-
 # ---- SET PARAMETERS ----
 # Dependendent variables to be predicted
 nn <- c(1,33,97)
 
 # Parameters
 p <- 0  # Number of lagged predictors
-rr <- c(1, 3, 5, 10, 20, 50, 65)  # Number of principal components
+rr <- c(1, 3, 5, 10, 25, 45, 60)  # Number of principal components
 K <- rr  # Number of predictors with LASSO
 HH <- c(4)  # Steap-ahead prediction
 Jwind <- 68  # Rolling window
@@ -90,56 +86,22 @@ for (jK in seq_along(K)) {
 }
 nu_lasso
 
-# ================================= out of sample ===========================
-
-
+# ================================= out of sample ==============================
 
 # ==============================================================================
 # =============================== LASSO PREDICTION ============================= 
 # ==============================================================================
 
-# Inizializza pred_FS con una struttura di liste annidate
-pred_FS <- vector("list", length = TT)
+# Define lengths for each level
+outer_length <- TT
+mid_length <- length(nn)
+inner_length <- length(K)
 
-for (j in 1:TT) {
-  pred_FS[[j]] <- vector("list", length = length(nn))
-  
-  for (k in 1:length(nn)){
-    pred_FS[[j]][[k]] <- vector("list", length = length(K))
-  }
-}
-
-FarmSelect <- vector("list", length = TT)
-
-for (j in 1:TT) {
-  FarmSelect[[j]] <- vector("list", length = length(nn))
-  
-  for (k in 1:length(nn)){
-  FarmSelect[[j]][[k]] <- vector("list", length = length(K))
-  }
-}
-
-
-true_FS <- vector("list", length = TT)
-
-for (j in 1:TT) {
-  true_FS[[j]] <- vector("list", length = length(nn))
-  
-  for (k in 1:length(nn)){
-    true_FS[[j]][[k]] <- vector("list", length = length(K))
-  }
-}
-
-
-RW_FS <- vector("list", length = TT)
-
-for (j in 1:TT) {
-  RW_FS[[j]] <- vector("list", length = length(nn))
-  
-  for (k in 1:length(nn)){
-    RW_FS[[j]][[k]] <- vector("list", length = length(K))
-  }
-}
+# Initialize each list using the function
+pred_FS <- initialize_nested_list(outer_length, c(mid_length, inner_length))
+FarmSelect <- initialize_nested_list(outer_length, c(mid_length, inner_length))
+true_FS <- initialize_nested_list(outer_length, c(mid_length, inner_length))
+RW_FS <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 
 # Esegui l'esercizio di previsione fuori campione LASSO
 for (j in start_sample:(TT - HH)) {
@@ -202,466 +164,488 @@ ind_last <- which(year(EAdataQ$Time) == last_y & month(EAdataQ$Time) == last_m)
 
 # Turn the prediction for each variable into a matrix
 
-###############
-## 
-###############
+# ---- MSFE computation
 
-# per predizioni 
-# Inizializza una lista per memorizzare le matrici di output per ogni variabile dipendente
-FarmSelect_output <- vector("list", length = length(nn))
+# Number of variables and length of intervals
+variable_count <- length(nn)
+interval_length <- length(ind_first:length(FarmSelect))
 
-# Ciclo su tutte le variabili dipendenti (k)
-for (k in 1:length(nn)) {
-  # Calcola la lunghezza dell'intervallo degli anni
-  pred_quarters <- length(ind_first:length(FarmSelect))
-  
-  # Inizializza la lista di output per la variabile dipendente k
-  FarmSelect_output[[k]] <- vector("list", length = pred_quarters)
-}
+# Initialize output lists
+FarmSelect_output <- initialize_output_list(variable_count, interval_length)
+true_FS_output <- initialize_output_list(variable_count, interval_length)
+RW_output <- initialize_output_list(variable_count, interval_length)
 
-# Ciclo per ogni anno in FarmSelect, a partire da 'ind_first'
-for (j in ind_first:length(FarmSelect)) {
-  
-  # Ciclo su tutte le variabili dipendenti (k)
-  for (k in 1:length(nn)) {
-    
-    # Prendi la lista delle predizioni per l'anno corrente e la variabile dipendente k
-    quarter_prediction <- FarmSelect[[j]][[k]]
-    
-    # Unisci tutte le predizioni in una matrice (aggiungi le predizioni come righe)
-    quarter_pred_metrix <- do.call(rbind, lapply(quarter_prediction, unlist))
-    
-    # Memorizza la matrice per l'anno e la variabile dipendente k
-    # Rinomina la lista con l'anno e la variabile dipendente (usando paste per concatenare)
-    FarmSelect_output[[k]][[j - ind_first + 1]] <- quarter_pred_metrix
-  }
-}
+# Process FarmSelect predictions
+FarmSelect_output <- process_output(FarmSelect, FarmSelect_output, ind_first, variable_count)
 
+# Process true values
+true_FS_output <- process_output(true_FS, true_FS_output, ind_first, variable_count)
 
-# per true values 
-# Inizializza una lista per memorizzare le matrici di output per ogni variabile dipendente
-true_FS_output <- vector("list", length = length(nn))
+# Process Random Walk predictions
+RW_output <- process_output(RW_FS, RW_output, ind_first, variable_count)
 
-# Ciclo su tutte le variabili dipendenti (k)
-for (k in 1:length(nn)) {
-  # Calcola la lunghezza dell'intervallo degli anni
-  true_quarters <- length(ind_first:length(FarmSelect))
-  
-  # Inizializza la lista di output per la variabile dipendente k
-  true_FS_output[[k]] <- vector("list", length = true_quarters)
-}
+# Calculate squared differences
+diff_FS_output <- calculate_squared_differences(true_FS_output, FarmSelect_output,
+                                                variable_count, interval_length)
+diff_RW_output <- calculate_squared_differences(true_FS_output, RW_output, variable_count,
+                                                interval_length)
 
-# Ciclo per ogni anno in FarmSelect, a partire da 'ind_first'
-for (j in ind_first:length(true_FS)) {
-  
-  # Ciclo su tutte le variabili dipendenti (k)
-  for (k in 1:length(nn)) {
-    
-    # Prendi la lista delle predizioni per l'anno corrente e la variabile dipendente k
-    quarter_true <- true_FS[[j]][[k]]
-    
-    # Unisci tutte le predizioni in una matrice (aggiungi le predizioni come righe)
-    quarter_true_metrix <- do.call(rbind, lapply(quarter_true, unlist))
-    
-    # Memorizza la matrice per l'anno e la variabile dipendente k
-    # Rinomina la lista con l'anno e la variabile dipendente (usando paste per concatenare)
-    true_FS_output[[k]][[j - ind_first + 1]] <- quarter_true_metrix
-  }
-}
+# Calculate mean squared forecast error (MSFE)
+MSFE_FS <- calculate_msfe(diff_FS_output, variable_count)
+MSFE_RW <- calculate_msfe(diff_RW_output, variable_count)
 
-# Supponendo che 'true_FS_output' e 'predicted_FS_output' siano strutturati correttamente
-# e contengano liste di vettori di predizioni per ogni anno
-
-# Inizializza una lista per i risultati delle differenze
-diff_FS_output <- vector("list", length = length(nn))
-
-# Ciclo su tutte le variabili dipendenti (k)
-for (k in 1:length(nn)) {
-  # Calcola la lunghezza dell'intervallo degli anni
-  diff_quarters <- length(ind_first:length(FarmSelect))
-  
-  # Inizializza la lista di output per la variabile dipendente k
-  diff_FS_output[[k]] <- vector("list", length = diff_quarters)
-  
-  # Ciclo su ogni anno (j)
-  for (j in 1:diff_quarters) {
-    # Prendi i vettori true e predicted per l'anno j e la variabile k
-    true_vector <- true_FS_output[[k]][[j]]
-    predicted_vector <- FarmSelect_output[[k]][[j]]
-    
-    # Assicurati che true_vector e predicted_vector abbiano la stessa lunghezza
-    if (length(true_vector) == length(predicted_vector)) {
-      # Calcola la differenza al quadrato per ogni elemento nei vettori
-      diff_matrix <- (true_vector - predicted_vector)^2
-    } 
-    # Memorizza il risultato
-    diff_FS_output[[k]][[j]] <- diff_matrix
-  }
-}
-
-# Visualizza i risultati
-print(diff_FS_output)
-
-# Inizializza una lista per memorizzare la media di ogni colonna per ogni variabile dipendente
-MSFE_FS <- vector("list", length = length(nn))
-
-# Ciclo su tutte le variabili dipendenti (k)
-for (k in 1:length(nn)) {
-  # Prendi tutte le liste di vettori per la variabile dipendente k
-  vectors_k <- diff_FS_output[[k]]
-  
-  # Determina la lunghezza dei vettori (assumendo che siano tutti della stessa lunghezza per ogni j)
-  vector_length <- length(vectors_k[[1]])
-  
-  # Inizializza un vettore per memorizzare le medie di ogni "colonna"
-  mean_vector <- numeric(vector_length)
-  
-  # Ciclo su ogni posizione del vettore
-  for (pos in 1:vector_length) {
-    # Estrai gli elementi alla posizione 'pos' da tutti gli anni j
-    elements_at_pos <- sapply(vectors_k, function(v) v[pos])
-    
-    # Calcola la media di questi elementi
-    mean_vector[pos] <- mean(elements_at_pos, na.rm = TRUE)
-  }
-  
-  # Memorizza il vettore di medie per la variabile dipendente k
-  MSFE_FS[[k]] <- mean_vector
-}
-
-# Visualizza il risultato
+# Display results
 print(MSFE_FS)
-
-
-# compiute the MSFE for RW
-
-# Inizializza una lista per memorizzare le matrici di output per ogni variabile dipendente
-RW_output <- vector("list", length = length(nn))
-
-# Ciclo su tutte le variabili dipendenti (k)
-for (k in 1:length(nn)) {
-  # Calcola la lunghezza dell'intervallo degli anni
-  pred_quarters_RW <- length(ind_first:length(RW_FS))
-  
-  # Inizializza la lista di output per la variabile dipendente k
-  RW_output[[k]] <- vector("list", length = pred_quarters_RW)
-}
-
-# Ciclo per ogni anno in FarmSelect, a partire da 'ind_first'
-for (j in ind_first:length(RW_FS)) {
-  
-  # Ciclo su tutte le variabili dipendenti (k)
-  for (k in 1:length(nn)) {
-    
-    # Prendi la lista delle predizioni per l'anno corrente e la variabile dipendente k
-    quarter_prediction <- RW_FS[[j]][[k]]
-    
-    # Unisci tutte le predizioni in una matrice (aggiungi le predizioni come righe)
-    quarter_pred_metrix_RW <- do.call(rbind, lapply(quarter_prediction, unlist))
-    
-    # Memorizza la matrice per l'anno e la variabile dipendente k
-    # Rinomina la lista con l'anno e la variabile dipendente (usando paste per concatenare)
-    RW_output[[k]][[j - ind_first + 1]] <- quarter_pred_metrix_RW
-  }
-}
-
-
-# Inizializza una lista per i risultati delle differenze
-diff_RW_output <- vector("list", length = length(nn))
-
-# Ciclo su tutte le variabili dipendenti (k)
-for (k in 1:length(nn)) {
-  # Calcola la lunghezza dell'intervallo degli anni
-  diff_quarters <- length(ind_first:length(FarmSelect))
-  
-  # Inizializza la lista di output per la variabile dipendente k
-  diff_RW_output[[k]] <- vector("list", length = diff_quarters)
-  
-  # Ciclo su ogni anno (j)
-  for (j in 1:diff_quarters) {
-    # Prendi i vettori true e predicted per l'anno j e la variabile k
-    true_vector <- true_FS_output[[k]][[j]]
-    predicted_vector_RW <- RW_output[[k]][[j]]
-    
-    # Assicurati che true_vector e predicted_vector abbiano la stessa lunghezza
-    if (length(true_vector) == length(predicted_vector_RW)) {
-      # Calcola la differenza al quadrato per ogni elemento nei vettori
-      diff_matrix <- (true_vector - predicted_vector_RW)^2
-    } 
-    # Memorizza il risultato
-    diff_RW_output[[k]][[j]] <- diff_matrix
-  }
-}
-
-# Visualizza i risultati
-print(diff_RW_output)
-
-# Inizializza una lista per memorizzare la media di ogni colonna per ogni variabile dipendente
-MSFE_RW <- vector("list", length = length(nn))
-
-# Ciclo su tutte le variabili dipendenti (k)
-for (k in 1:length(nn)) {
-  # Prendi tutte le liste di vettori per la variabile dipendente k
-  vectors_k <- diff_RW_output[[k]]
-  
-  # Determina la lunghezza dei vettori (assumendo che siano tutti della stessa lunghezza per ogni j)
-  vector_length <- length(vectors_k[[1]])
-  
-  # Inizializza un vettore per memorizzare le medie di ogni "colonna"
-  mean_vector <- numeric(vector_length)
-  
-  # Ciclo su ogni posizione del vettore
-  for (pos in 1:vector_length) {
-    # Estrai gli elementi alla posizione 'pos' da tutti gli anni j
-    elements_at_pos <- sapply(vectors_k, function(v) v[pos])
-    
-    # Calcola la media di questi elementi
-    mean_vector[pos] <- mean(elements_at_pos, na.rm = TRUE)
-  }
-  
-  # Memorizza il vettore di medie per la variabile dipendente k
-  MSFE_RW[[k]] <- mean_vector
-}
-
 print(MSFE_RW)
 
-#################### VISUALIZZA IL RATIO 
-vector_lengths <- sapply(MSFE_FS, length)
+# ---- MFSE Ratio
 
-if (length(unique(vector_lengths)) == 1) {
-  # Se tutti i vettori hanno la stessa lunghezza, combinali in una matrice
-  MSFE_FS_matrix <- do.call(rbind, MSFE_FS)
-  MSFE_FS_matrix <- as.data.frame(MSFE_FS_matrix)
-  # Rename rows and columns
-  rownames(MSFE_FS_matrix) <- target_var
-  colnames(MSFE_FS_matrix) <- paste0(K)
-  # Visualizza la matrice
-  print(MSFE_FS_matrix)
-}
+# Convert MSFE_FS and MSFE_RW lists to matrices
+MSFE_FS_matrix <- convert_to_named_matrix(MSFE_FS, target_var, K)
+print(MSFE_FS_matrix)
 
+MSFE_RW_matrix <- convert_to_named_matrix(MSFE_RW, target_var, K)
+print(MSFE_RW_matrix)
 
-vector_lengths <- sapply(MSFE_RW, length)
-
-if (length(unique(vector_lengths)) == 1) {
-  # Se tutti i vettori hanno la stessa lunghezza, combinali in una matrice
-  MSFE_RW_matrix <- do.call(rbind, MSFE_RW)
-  MSFE_RW_matrix <- as.data.frame(MSFE_RW_matrix)
-  # Rename rows and columns
-  rownames(MSFE_RW_matrix) <- target_var
-  colnames(MSFE_RW_matrix) <- paste0(K)
-  
-  # Visualizza la matrice
-  print(MSFE_RW_matrix)
-}
-
+# Calculate and display the ratio of MSFE_FS to MSFE_RW
 MSFE_FS_ratio <- MSFE_FS_matrix / MSFE_RW_matrix
 print(MSFE_FS_ratio)
 
 
+# ---- Visualization
 
-############################## MATRICE PER MATRICE #############################
-# Ora FarmSelect_output contiene una lista di matrici per ogni variabile dipendente (k)
-# Le matrici sono per ogni anno (rinominate come "Year 72", "Year 73", ...) e contengono le predizioni
+# Convertire il dataframe in formato long, includendo un identificatore per le righe
+MSFE_FS_matrix_long <- MSFE_FS_matrix %>%
+  rownames_to_column(var = "Variable") %>%
+  pivot_longer(cols = -Variable, names_to = "Penalization", values_to = "Value")
+
+MSFE_FS_matrix_long <- MSFE_FS_matrix_long %>%
+  mutate(Penalization = factor(Penalization, levels = unique(Penalization)))
+
+ggplot(MSFE_FS_matrix_long, aes(x = Penalization, y = Value, color = Variable, group = Variable)) +
+  geom_line(linewidth = 0.5) +
+  geom_point(size = 2) +
+  labs(
+    title = "MSFE LASSO FarmSelect",
+    x = "Number of predictors with non-zero coefficient",
+    y = "MSFE"
+  ) +
+  facet_wrap(~ Variable, scales = "free_y") + 
+  scale_color_brewer(palette = "Set1") +
+  theme_minimal(base_size = 14) + 
+  theme(
+    plot.title = element_text(hjust = 0.5, face = "bold", size = 16),  
+    axis.title = element_text(face = "bold"),
+    legend.position = "bottom", 
+    legend.title = element_blank(), 
+    strip.text = element_text(face = "bold", size = 12)
+  )
 
 
-# Inizializza una matrice vuota per memorizzare la prima riga di ogni lista
-target_1 <- NULL
+# ==============================================================================
+# =================================== BEST MODEL ===============================
+# ==============================================================================
 
-# Ciclo su tutte le matrici in FarmSelect_output
-for (q in names(FarmSelect_output)) {
+# Inizializza una lista vuota per salvare i risultati
+best_FS_model <- data.frame(Variable = rownames(MSFE_FS_matrix),
+                            Best_MSFE = numeric(nrow(MSFE_FS_matrix)),
+                            Best_Penalization = character(nrow(MSFE_FS_matrix)),
+                            nu_lasso_FS = numeric(nrow(MSFE_FS_matrix)),
+                            stringsAsFactors = FALSE)
+
+# Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
+penalization_map <- c("1" = 1, "2" = 2, "3" = 3, "4" = 4, 
+                      "5" = 5, "6" = 6, "7" = 7, "8" = 8)
+
+# Loop per ogni riga della matrice MSFE
+for (i in 1:nrow(MSFE_FS_matrix)) {
   
-  # Estrai la matrice per l'anno corrente
-  quarter_pred_metrix <- FarmSelect_output[[q]]
+  # Trova l'indice della colonna con il valore minimo nella riga i
+  min_index <- which.min(MSFE_FS_matrix[i, ])
   
-  # Prendi solo la prima riga della matrice
-  variable_1 <- quarter_pred_metrix[1, , drop = FALSE]  # drop = FALSE mantiene la matrice come tale
+  # Assegna il valore minimo e il nome della colonna nella lista dei risultati
+  best_FS_model$Best_MSFE[i] <- MSFE_FS_matrix[i, min_index]
+  best_FS_model$Best_Penalization[i] <- colnames(MSFE_FS_matrix)[min_index]
   
-  # Combina la prima riga con le altre (aggiungi la prima riga sotto le righe precedenti)
-  target_1 <- rbind(target_1, variable_1)
+  # Ottieni il nome della penalizzazione migliore per questa variabile
+  best_penalization <- best_FS_model$Best_Penalization[i]
+  
+  # Controlla se la penalizzazione è presente nel mapping
+  if (best_penalization %in% names(penalization_map)) {
+    
+    # Ottieni l'indice corrispondente alla penalizzazione
+    penalization_index <- penalization_map[best_penalization]
+    
+    # Seleziona la predizione corrispondente dal nu_lasso
+    best_FS_model$nu_lasso_FS[i] <- nu_lasso[[i]][[penalization_index]]
+    
+  } else {
+    # Gestisci il caso in cui la penalizzazione non viene trovata
+    print(paste("Penalization", best_penalization, "not found for variable", rownames(MSFE_FS_matrix)[i]))
+    best_FS_model$nu_lasso_FS[i] <- NA  # Assegna NA se la penalizzazione non è trovata
+  }
 }
 
-# Visualizza la matrice finale con tutte le prime righe
-print(target_1)
-###############################################################################
+# Visualizza i risultati
+print(best_FS_model)
+
+# Inizializza una matrice vuota per le migliori predizioni per ogni anno
+best_FS_prediction <- matrix(NA, nrow = length(seq(from = ind_first, to = length(FarmSelect))), ncol = nrow(MSFE_FS_matrix))
+rownames(best_FS_prediction) <- seq(from = ind_first, to = length(FarmSelect))  # Assegna gli anni come nomi delle righe
+colnames(best_FS_prediction) <- rownames(MSFE_FS_matrix)  # Assegna le variabili come nomi delle colonne
 
 
-# Ridge Output Matrix
-FarmSelect_output <- do.call(rbind, lapply(FarmSelect[ind_first:length(FarmSelect)], unlist))
-
-# Rename rows and columns
-rownames(FarmSelect_output) <- ind_first:ind_last
-colnames(FarmSelect_output) <- paste0(K)
-
-# True Output Matrix
-true_FS_output <- do.call(rbind, lapply(true_FS[ind_first:length(true_FS)], unlist))
-
-# Rename rows and columns
-rownames(true_FS_output) <- ind_first:ind_last
-colnames(true_FS_output) <- paste0(K)
-
-# MSFE ridge
-MSFE_LASSO_FS <- matrix(colMeans((FarmSelect_output - true_FS_output)^2),nrow = 1, byrow = FALSE)
-
-# Rename matrix
-colnames(MSFE_LASSO_FS) <- paste(K)
-rownames(MSFE_LASSO_FS)<- paste(nn)
-
-# Convertire la matrice in un dataframe
-df_MSFE_LASSO_FS <- as.data.frame(MSFE_LASSO_FS)
-df_MSFE_LASSO_FS
-
-# Convertire la matrice in un dataframe
-df_MSFE_LASSO_FS <- as.data.frame(MSFE_LASSO_FS)
-
-# Convertire il dataframe in formato long
-df_MSFE_LASSO_FS_long <- df_MSFE_LASSO_FS %>%
-  pivot_longer(cols = everything(), names_to = "Column", values_to = "Value")
-
-df_MSFE_LASSO_FS_long$Column <- as.numeric(as.character(df_MSFE_LASSO_FS_long$Column))
-df_MSFE_LASSO_FS_long$Column <- factor(df_MSFE_LASSO_FS_long$Column, levels = K)
-
-# Plot MSFE against In-sample residual variance
-ggplot(df_MSFE_LASSO_FS_long, aes(x = Column, y = Value, group = 1)) +
-  geom_line() +  # Linea per i valori
-  geom_point() +  # Aggiungi punti per i valori
-  labs(title = "MSFE LASSO FarmSelect",
-       x = "number of predictors with non zero coefficient",
-       y = "MSFE") +
-  theme_minimal()
-
-# *************************** LASSO MFSE vs. RW MSFE ***************************
-# Ridge Output Matrix
-RW_FS_output <- do.call(rbind, lapply(RW_FS[ind_first:length(FarmSelect)], unlist))
-
-# Rename rows and columns
-rownames(RW_FS_output) <- ind_first:ind_last
-colnames(RW_FS_output) <- paste0(K)
-
-# MSFE RW
-MSFE_FS_RW <- matrix(colMeans((RW_FS_output - true_FS_output)^2),nrow = 1, byrow = FALSE)
-
-# Rename matrix
-colnames(MSFE_FS_RW) <- paste(K)
-rownames(MSFE_FS_RW)<- paste(nn)
-MSFE_LASSO_FS_ratio <- MSFE_LASSO_FS / MSFE_FS_RW
-
-rownames(MSFE_LASSO_FS_ratio)[rownames(MSFE_LASSO_FS_ratio) == all_of(nn)] <- "MSFE"
-FarmSelect_output_MSFE <- rbind(FarmSelect_output, MSFE_LASSO_FS_ratio)
-
-
-# ==============================================================================
-# ====== VARIABLE FREQUENCY LASSO MODEL SELECTIN (more consistent) =============
-# ==============================================================================
-
-# Inizializza un vettore vuoto per raccogliere le variabili
-variabili_combine <- c()
-
-# Funzione ricorsiva per estrarre le variabili da model_selection
-estrai_model_selection <- function(lista) {
-  if (is.list(lista)) {
-    # Controlla se la lista contiene model_selection
-    if ("model_selection" %in% names(lista)) {
-      variabili_combine <<- c(variabili_combine, lista$model_selection)
-    }
-    # Scorri attraverso gli elementi della lista
-    for (elemento in lista) {
-      estrai_model_selection(elemento)
+# Loop per ogni variabile (riga di MSFE_FS_matrix)
+for (i in 1:nrow(MSFE_FS_matrix)) {
+  
+  # Trova l'indice della colonna con il valore minimo nella riga i (la penalizzazione ottimale)
+  min_index <- which.min(MSFE_FS_matrix[i, ])
+  
+  # Ottieni il nome della penalizzazione migliore per questa variabile
+  best_penalization <- colnames(MSFE_FS_matrix)[min_index]
+  
+  # Ottieni l'indice della penalizzazione corrispondente
+  penalization_index <- penalization_map[best_penalization]
+  
+  # Per ogni anno (da ind_first a FarmSelect), seleziona la predizione corrispondente alla penalizzazione ottimale
+  for (j in ind_first:length(FarmSelect)) {  # Itera sugli anni
+    # Estrai la lista di predizioni per la variabile i e l'anno j da FarmSelect
+    pred_list_for_year_var <- FarmSelect[[j]][[i]]
+    
+    # Controlla se penalization_index è dentro i limiti della lista di predizioni
+    if (penalization_index <= length(pred_list_for_year_var)) {
+      # Salva la predizione corrispondente al miglior parametro di penalizzazione
+      best_FS_prediction[j - ind_first + 1, i] <- pred_list_for_year_var[[penalization_index]]
+    } else {
+      # Se l'indice è fuori limite, assegna NA
+      best_FS_prediction[j - ind_first + 1, i] <- NA
+      print(paste("Attenzione: Penalization", best_penalization, "è fuori limite per la variabile", rownames(MSFE_FS_matrix)[i], "e l'anno", j))
     }
   }
 }
 
-# Scorri attraverso la megalista e applica la funzione
-for (sub_lista in pred_FS) {
-  estrai_model_selection(sub_lista)
+# Visualizza la matrice delle migliori predizioni per gli anni selezionati
+print(best_FS_prediction)
+
+best_FS_prediction <- as.data.frame(best_FS_prediction)
+
+
+
+path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+setwd(path)
+saveRDS(best_FS_model, file = "Results/Best Models/best_FS_model.rds")
+saveRDS(best_FS_prediction, file = "Results/Best Models/best_FS_prediction.rds")
+
+
+# ==============================================================================
+# ====== VARIABLE FREQUENCY LASSO MODEL SELECTION (more consistent) ============
+# ==============================================================================
+
+# Inizializza una matrice vuota per le migliori predizioni per ogni anno
+variable_selction <- matrix(NA, nrow = length(seq(from = start_sample, to = length(FarmSelect) - HH)), ncol = nrow(MSFE_FS_matrix))
+rownames(variable_selction) <- seq(from = start_sample, to = length(FarmSelect) - HH)  # Assegna gli anni come nomi delle righe
+colnames(variable_selction) <- rownames(MSFE_FS_matrix)  # Assegna le variabili come nomi delle colonne
+
+# Loop per ogni variabile (riga di MSFE_FS_matrix)
+for (i in 1:nrow(MSFE_FS_matrix)) {
+  
+  # Trova l'indice della colonna con il valore minimo nella riga i (la penalizzazione ottimale)
+  min_index <- which.min(MSFE_FS_matrix[i, ])
+  
+  # Ottieni il nome della penalizzazione migliore per questa variabile
+  best_penalization <- colnames(MSFE_FS_matrix)[min_index]
+  
+  # Ottieni l'indice della penalizzazione corrispondente
+  penalization_index <- penalization_map[best_penalization]
+  
+  # Per ogni anno (da start_sample a FarmSelect), seleziona la predizione corrispondente alla penalizzazione ottimale
+  for (j in start_sample:(length(FarmSelect) - HH)) {  # Itera sugli anni
+    # Estrai la lista di predizioni per la variabile i e l'anno j da FarmSelect
+    pred_list_for_year_var <- pred_FS[[j]][[i]]
+    
+    # Verifica che la lista di predizioni per l'anno e la variabile sia valida
+    if (is.list(pred_list_for_year_var) && length(pred_list_for_year_var) >= penalization_index) {
+      # Seleziona il modello corrispondente alla penalizzazione ottimale
+      selected_model <- pred_list_for_year_var[[penalization_index]]
+      
+      # Controlla se 'model_selection' è una lista (potrebbe contenere più modelli)
+      if ("model_selection" %in% names(selected_model)) {
+        model_selection_values <- selected_model[["model_selection"]]
+        
+        # Se 'model_selection' è una lista o vettore, puoi decidere come selezionare i valori
+        if (length(model_selection_values) > 1) {
+          # Ad esempio, prendi tutti i valori di 'model_selection' e assegnali
+          # Potresti anche voler fare un'aggregazione, come la media, se vuoi un singolo valore
+          variable_selction[j - start_sample + 1, i] <- paste(model_selection_values, collapse = ", ")
+        } else {
+          # Se c'è solo un valore, assegna quel valore
+          variable_selction[j - start_sample + 1, i] <- model_selection_values
+        }
+      } else {
+        # Se 'model_selection' non è presente nel modello, assegna NA
+        variable_selction[j - start_sample + 1, i] <- NA
+        print(paste("Attenzione: 'model_selection' non trovato per la variabile", rownames(MSFE_FS_matrix)[i], "e l'anno", j))
+      }
+    } else {
+      # Se l'indice è fuori limite o la lista non è valida, assegna NA
+      variable_selction[j - start_sample + 1, i] <- NA
+      print(paste("Attenzione: Penalization", best_penalization, "è fuori limite per la variabile", rownames(MSFE_FS_matrix)[i], "e l'anno", j))
+    }
+  }
 }
 
-# Calcola la frequenza delle variabili
-frequenze <- table(variabili_combine)
 
-# Mostra i risultati
-print(frequenze)
+# Visualizza la matrice delle migliori predizioni per gli anni selezionati
+print(variable_selction)
 
-plot(frequenze)
+# the model selection is consistent. Every time we ask to select the variable according to the best penalization it extracts the same variables
+# in gdp it is not the case probabluy due to the fact it is high correlated?
 
-# Calcola la frequenza delle variabili
-frequenze <- table(variabili_combine)
+# Converti la matrice in formato long
+variable_selction_long <- as.data.frame(variable_selction) %>%
+  mutate(Year = rownames(variable_selction)) %>%
+  gather(key = "Variable", value = "SelectedModel", -Year)
 
-# Trasforma in dataframe
-df_frequenze <- as.data.frame(frequenze)
+# Conta la frequenza delle selezioni per ogni variabile target
+freq_table <- variable_selction_long %>%
+  group_by(Variable, SelectedModel) %>%
+  summarise(Frequency = n(), .groups = 'drop')
 
-# Rinomina le colonne per maggiore chiarezza
-colnames(df_frequenze) <- c("Variabile", "Frequenza")
+# Crea un grafico delle frequenze delle selezioni
+ggplot(freq_table, aes(x = Variable, y = Frequency, fill = SelectedModel)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(title = "Frequence variable selection for each target",
+       x = "Target Variable",
+       y = "Frequence",
+       fill = "Model Selection") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
 
-# Ordina il dataframe in base alla frequenza, dalla più alta alla più bassa
-df_frequenze <- df_frequenze[order(-df_frequenze$Frequenza), ]
-
-row.names(df_frequenze) <- 1:nrow(df_frequenze)
-
-df_frequenze <- df_frequenze %>%
-  filter(Frequenza >= 24)
-
-# Crea un grafico a barre
-ggplot(df_frequenze, aes(x = reorder(Variabile, -Frequenza), y = Frequenza)) +
-  geom_bar(stat = "identity", fill = "steelblue") +
-  coord_flip() +  # Ruota il grafico per una migliore leggibilità
-  labs(title = "Frequenza delle Variabili in model_selection",
-       x = "Variabile",
-       y = "Frequenza") +
-  theme_minimal()
 
 # ==============================================================================
 # ========================== PREDICTION VISUALIZATION ========================== 
 # ==============================================================================
 
-# time serires of gdp
-
+# Verifica che `nn` contenga i nomi delle colonne corretti
 EAdataQ_long <- EAdataQ %>%
-  select(Time, all_of(nn+1)) # there is the time column
-ggplot(EAdataQ_long, aes(x = Time, y = pull(EAdataQ_long, 2))) +
-  geom_line() + 
-  geom_vline(xintercept = as.Date("2017-01-01"), color = "red", linetype = "dashed", linewidth = 1) +
-  labs(title = "Time series of GDP in Euro Area",
+  select(Time, all_of(nn+1)) %>%  # Seleziona la colonna Time e le colonne specificate in nn
+  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
+               names_to = "Variable", 
+               values_to = "Value")
+
+# Converti la variabile Time in formato Date per rimuovere l'informazione UTC
+time_subset <- as.Date(EAdataQ$Time[ind_first:length(FarmSelect)])
+
+best_FS_prediction_long <- best_FS_prediction %>%
+  mutate(Time = time_subset)%>%  # Aggiungi la colonna Time
+  mutate(across(where(is.numeric), ~ . / 4)) %>% 
+  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
+               names_to = "Variable", 
+               values_to = "Value_pred")
+
+output_pred <- left_join(EAdataQ_long, best_FS_prediction_long, by = c("Time", "Variable"))
+
+# Ristrutturazione dei dati per avere una colonna 'Type' che distingue tra 'Value' e 'Value_pred'
+output_pred_long <- output_pred %>%
+  pivot_longer(cols = c(Value, Value_pred), 
+               names_to = "Type", 
+               values_to = "Value")
+
+ggplot(output_pred_long, aes(x = Time, y = Value, color = Type)) +
+  geom_line(size = 1.2) +  # Aumenta lo spessore delle linee per renderle più visibili
+  facet_wrap(~ Variable, scales = "free_y", ncol = 1) +  # Un grafico per ogni variabile, con una colonna per facilitare la lettura
+  scale_color_manual(values = c("blue", "red")) +  # Personalizza i colori per 'Value' e 'Value_pred'
+  labs(title = "Time Series of Variables in the Euro Area",
+       subtitle = "Actual and Predicted Values",
        x = "Year", 
-       y = "GDP in Euro Area") +
-  theme_minimal() 
+       y = "Value",
+       color = "Type",
+       caption = "Source: Euro Area Data") +  # Aggiungi un sottotitolo e una didascalia
+  theme_minimal(base_size = 14) +  # Imposta una dimensione base per il tema
+  theme(
+    legend.position = "top",  # Posiziona la legenda in cima
+    panel.grid.major = element_line(color = "gray", linetype = "dashed", size = 0.5),  # Aggiungi linee della griglia maggiori in grigio
+    panel.grid.minor = element_blank(),  # Rimuovi la griglia minore
+    strip.background = element_rect(fill = "lightblue", color = "black", size = 1),  # Colore di sfondo per le etichette dei facetti
+    strip.text = element_text(size = 12, face = "bold"),  # Cambia la dimensione e il font delle etichette dei facetti
+    axis.title.x = element_text(size = 14, face = "bold"),  # Titolo x
+    axis.title.y = element_text(size = 14, face = "bold"),  # Titolo y
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Ruota le etichette dell'asse x per migliorarne la leggibilità
+    axis.text.y = element_text(size = 12)  # Cambia la dimensione delle etichette dell'asse y
+  ) 
 
 
-FarmSelect_output_MSFE <- as.data.frame(FarmSelect_output_MSFE)
+# ==============================================================================
+# ===================== COMPARISON IN PREDICTION VISUALIZATION =================
+# ==============================================================================
 
-# Trova la colonna in cui il valore di MSFE è il minimo
-min_col <- which.min(FarmSelect_output_MSFE["MSFE", ])  # Se 'MSFE' è una riga, troveremo la colonna con il valore minimo
-colname_min <- colnames(FarmSelect_output_MSFE)[min_col]  # Nome della colonna corrispondente
+# In this section are presented the out of sample performances comparison between models
 
-# Selezionare tutte le righe tranne la riga 'MSFE' dalla colonna con il valore minimo
-opt_infit <- FarmSelect_output_MSFE %>%
-  filter(row.names(FarmSelect_output_MSFE) != "MSFE") %>%  # Escludi la riga 'MSFE'
-  select(colname_min)  # Seleziona solo la colonna con il valore minimo
+best_FS_prediction <- best_FS_prediction %>%
+  rename_with(~ paste0("FS_", .), everything())
+
+prediction_comparison_list <- list(best_FS_prediction)
+
+# Applica la sequenza come nuova colonna "Index" per ciascun data frame nella lista
+prediction_comparison_list <- lapply(prediction_comparison_list, function(df) {
+  df %>%
+    mutate(Index = (start_sample+HH):length(FarmSelect)) 
+})
+
+# Ora puoi effettuare il merge usando "Index" come chiave
+prediction_comparison <- reduce(prediction_comparison_list, left_join, by = "Index")
+prediction_comparison <- prediction_comparison%>%
+  select(-Index)
+
+write_xlsx(prediction_comparison, "Results/Best Models/prediction_comparison_FS.xlsx")
+
+prediction_comparison_long <- prediction_comparison %>%
+  mutate(Time = time_subset)%>%  # Aggiungi la colonna Time
+  mutate(across(where(is.numeric), ~ . / HH)) %>% 
+  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
+               names_to = "Variable", 
+               values_to = "Value_pred")
 
 
-# Crea FarmSelect_opt_df con la colonna chiave
-FarmSelect_opt_df <- data.frame(Row.names = rownames(FarmSelect_output), opt_infit)
+# Espandiamo il dataset creando una riga per ogni combinazione di variabile e prefisso
+EAdataQ_long_all <- EAdataQ_long %>%
+  # Creiamo una griglia di combinazioni per ogni variabile con i prefissi
+  expand_grid(Prefix = c("FS_")) %>%
+  # Ripetiamo per ogni variabile la sequenza di prefissi
+  mutate(Variable = str_c(Prefix, rep(EAdataQ_long$Variable, each = 1))) %>%
+  # Ordinamento in base a 'Variable' e 'Time'
+  arrange(Variable, Time) %>%
+  select(-Prefix)  # Rimuoviamo la colonna 'Prefix' non più necessaria
 
-# Assicurati che EAdataQ_long abbia una colonna chiave per fare il join
-EAdataQ_long <- EAdataQ_long %>%
-  mutate(Row.names = rownames(EAdataQ_long))
 
-# Rinominare la colonna e dividere i valori per 4
-# Rinominare la colonna
-FarmSelect_opt_df <- FarmSelect_opt_df %>%
-  rename(opt_fit = X1)
+output_pred_comp <- left_join(EAdataQ_long_all, prediction_comparison_long, by = c("Time", "Variable"))
+output_pred_comp <- output_pred_comp %>%
+  arrange(Time)
 
-# Dividere tutte le voci della colonna "opt_infit" per 4
-FarmSelect_opt_df$opt_fit <- FarmSelect_opt_df$opt_fit / 4
+# Ristrutturazione dei dati per avere una colonna 'Type' che distingue tra 'Value' e 'Value_pred'
+output_pred_comp <- output_pred_comp %>%
+  pivot_longer(cols = c(Value, Value_pred), 
+               names_to = "Type", 
+               values_to = "Value") %>%
+  # Se desideri differenziare per 'Variable' puoi anche assicurarti di mantenere la colonna 'Variable' intatta
+  arrange(Variable, Time) 
 
-# Unisci i dataset
-FarmSelect_df <- left_join(EAdataQ_long, FarmSelect_opt_df, by = "Row.names")
+# Create different datasets for every variable to predict
 
-# Grafico con ggplot
-ggplot(FarmSelect_df, aes(x = Time)) +
-  geom_line(aes(y = UNETOT_EA), colour = "blue", linewidth = 0.5) +  # Linea completa del GDP_EA
-  geom_line(aes(y = opt_fit), colour = "green", linewidth = 1, na.rm = TRUE) +  # Linea di Ridge_opt solo dove disponibile
-  geom_vline(xintercept = as.Date("2017-01-01"), color = "red", linetype = "dashed", linewidth = 1) +
-  labs(title = "Time series of GDP in Euro Area",
-       x = "Year", 
-       y = "GDP in Euro Area")
+## GDP
 
+# Make sure the 'output_pred_comp' dataset is already filtered and in long format
+output_pred_comp_GDP <- output_pred_comp %>%
+  filter(Variable %in% c("FS_GDP_EA"))
+
+# Add a column to distinguish models in the predictions
+output_pred_comp_GDP_long <- output_pred_comp_GDP %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "FS_") ~ "FarmSelect",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_GDP_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +  # Increase line thickness
+  labs(
+    title = "Comparison of Models for GDP in the Euro Area",
+    x = "Year",
+    y = "GDP",
+    color = "Model Type",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",   # Position the legend at the bottom
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold title
+    axis.title = element_text(size = 12),  # Increase axis titles size
+    axis.text = element_text(size = 10),  # Increase axis text size
+    panel.grid = element_blank(),  # Remove gridlines for a cleaner look
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)  # Add a border to the plot
+  ) +
+  scale_color_manual(
+    values = c( 
+      "FarmSelect.Value_pred" = "brown",
+      "Value" = "black"
+    )
+  ) +
+  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+
+## UNEMPLOYMENT
+
+# Make sure the 'output_pred_comp' dataset is already filtered and in long format
+output_pred_comp_UNE <- output_pred_comp %>%
+  filter(Variable %in% c("FS_UNETOT_EA"))
+
+# Add a column to distinguish models in the predictions
+output_pred_comp_UNE_long <- output_pred_comp_UNE %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "FS_") ~ "FarmSelect",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_UNE_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +  # Increase line thickness
+  labs(
+    title = "Comparison of Models for Unemplyment in the Euro Area",
+    x = "Year",
+    y = "GDP",
+    color = "Model Type",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",   # Position the legend at the bottom
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold title
+    axis.title = element_text(size = 12),  # Increase axis titles size
+    axis.text = element_text(size = 10),  # Increase axis text size
+    panel.grid = element_blank(),  # Remove gridlines for a cleaner look
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)  # Add a border to the plot
+  ) +
+  scale_color_manual(
+    values = c(
+      "FarmSelect.Value_pred" = "brown",
+      "Value" = "black"
+    )
+  ) +
+  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+
+
+## PRICES
+
+# Make sure the 'output_pred_comp' dataset is already filtered and in long format
+output_pred_comp_PP <- output_pred_comp %>%
+  filter(Variable %in% c("FS_PPINRG_EA"))
+
+# Add a column to distinguish models in the predictions
+output_pred_comp_PP_long <- output_pred_comp_PP %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "FS_") ~ "FarmSelect",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_PP_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +  # Increase line thickness
+  labs(
+    title = "Comparison of Models for Energy Prices in the Euro Area",
+    x = "Year",
+    y = "GDP",
+    color = "Model Type",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",   # Position the legend at the bottom
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold title
+    axis.title = element_text(size = 12),  # Increase axis titles size
+    axis.text = element_text(size = 10),  # Increase axis text size
+    panel.grid = element_blank(),  # Remove gridlines for a cleaner look
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)  # Add a border to the plot
+  ) +
+  scale_color_manual(
+    values = c(
+      "FarmSelect.Value_pred" = "brown",
+      "Value" = "black"
+    )
+  ) +
+  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))

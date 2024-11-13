@@ -1,238 +1,267 @@
+# ---- Set Directory
 getwd()
 path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
 setwd(path)
 
-# ---- LIBRARIES
+# ---- Libraries 
 library(dplyr)
 library(tidyverse)
 library(tseries)
 library(ggplot2)
 library(writexl)
 library(readxl)
+library(lubridate)
+library(glmnet)
 
-# ---- DATA COLLECTION: EA_countries_data and EA_data ----
-# AT <- read_xlsx("data/EA-MD-QD/ATdata.xlsx")
-# BE <- read_xlsx("data/EA-MD-QD/BEdata.xlsx") // keep for further analysis* //
-# DE <- read_xlsx("data/EA-MD-QD/DEdata.xlsx") // keep for further analysis //
-# EL <- read_xlsx("data/EA-MD-QD/ELdata.xlsx")
-# ES <- read_xlsx("data/EA-MD-QD/ESdata.xlsx") // keep for further analysis //
-# FR <- read_xlsx("data/EA-MD-QD/FRdata.xlsx") // keep for further analysis //
-# IE <- read_xlsx("data/EA-MD-QD/IEdata.xlsx")
-# IT <- read_xlsx("data/EA-MD-QD/ITdata.xlsx") // keep for further analysis //
-# NL <- read_xlsx("data/EA-MD-QD/NLdata.xlsx") // keep for further analysis* //
-# PT <- read_xlsx("data/EA-MD-QD/PTdata.xlsx") // keep for further analysis* //
-
-# EA <- read_xlsx("data/EA-MD-QD/EAdata.xlsx") // to be filtered using MATLAB code//
-
-# EA dataset filtered in Quarter variabiles
-EAdataQ <- read_xlsx("data/EA-MD-QD/EAdataQ_LT.xlsx") 
+# ---- LOAD DATA ----
+# load EA_data untill 2019
+EAdataQ <- read_xlsx("data/EA-MD-QD/EAdataQ_HT.xlsx") 
 EAdataQ <- EAdataQ %>%
-  filter(Time <= as.Date("2020-01-01"))
+  filter(Time <= as.Date("2019-10-01"))
 
-# ---- MERGING TO EA_DATA ----
-# EA_list <- list(AT, BE, DE, EL, ES, FR, IE, IT, NL, PT)
-# EA_countries_data <- reduce(EA_list, left_join, by = "Time")
-# write_xlsx(EA_countries_data, "data/EA-MD-QD/EA_data.xlsx")
-# rm(EA_list, EA_countries_data, AT, BE, DE, EL, ES, FR, IE, IT, NL, PT)
+best_l_model <- readRDS("Results/Best Models/best_l_model.rds")
+best_r_model <- readRDS("Results/Best Models/best_r_model.rds")
+best_FS_model <- readRDS("Results/Best Models/best_FS_model.rds")
 
+best_l_prediction <- readRDS("Results/Best Models/best_l_prediction.rds")
+best_r_prediction <- readRDS("Results/Best Models/best_r_prediction.rds")
+best_pc_prediction <- readRDS("Results/Best Models/best_pc_prediction.rds")
+best_FS_prediction <- readRDS("Results/Best Models/best_FS_prediction.rds")
 
-# ----------------------------- REPLICATION PAKAGES ----------------------------
-# 3PRF: https://github.com/IshmaelBelghazi/ThreePass/blob/master/readme.org
-# 3PRF: https://github.com/jacobkahn/ThreePassRegressionRPackage/blob/master/3PRF.R
+# ---- SET PARAMETERS ----
+# Dependendent variables to be predicted
+nn <- c(1,33,97)
 
-# ----  DESCRIPTION OF THE EA_DATA ----
-# QUARTER STATIONRARY VARIABLE AGGREGATES: National Accounts, Labor Market Indicators, 
-# Credit Aggregates, Labor Costs, Exchange Rates, Interest Rates, Industrial Production 
-# and Turnover, Prices,  Confidence Indicators, Monetary Aggregates, Others
+# Parameters
+p <- 0  # Number of lagged predictors
+rr <- c(1, 3, 5, 10, 25, 45, 60)  # Number of principal components
+K <- rr  # Number of predictors with LASSO
+INfit <- seq(0.1, 0.9, by = 0.1)  # In-sample residual variance explained by Ridge
+HH <- c(4)  # Steap-ahead prediction
+Jwind <- 68  # Rolling window
 
-# FILTERS: 
-# Frequency: Quarterly, hence months are converted into Quarters
-# Specific Transformation = heavy, meaning that we take the second differences 
-# Impute outliers and the Covid period = YES, imputing missing values at 
-#   beginning of sample/ragged edges and wiping out Real variablese
-# Number of factors for imputation q=99, where q is selected According to [BN02]
+# ********************************* IN SAMPLE ******************************** #
 
-# Translate MATLAB codes:
-
-# RIDGE
-RIDGE_pred <- function(y, x, p, nu, h) {
-  
-  # Initialize an empty matrix to store lagged predictors
-  temp <- NULL
-  
-  # Create lagged predictors: X = [x, x_{-1}, ..., x_{-p}]
-  for (j in 0:p) {
-    temp <- cbind(temp, x[(p + 1 - j):(nrow(x) - j), ])
-  }
-  X <- temp
-  
-  # Trim the dependent variable to match the lagged predictors
-  y <- y[(p + 1):length(y)]
-  
-  # Normalize the predictors to have |X| < 1
-  T <- nrow(X)
-  N <- ncol(X)
-  XX <- scale(X) / sqrt(N * T)
-  
-  # Prepare the predictors for regression: Z = [XX(1:end-h, :)]
-  Z <- XX[1:(nrow(XX) - h), ]
-  
-  # Compute the dependent variable for the forecast: Y = (y_{+1} + ... + y_{+h}) / h
-  Y <- stats::filter(y, rep(1/h, h), sides = 1)
-  Y <- Y[(h + 1):length(Y)]
-  
-  # Standardize the dependent variable
-  my <- mean(Y, na.rm = TRUE)
-  sy <- sd(Y, na.rm = TRUE)
-  y_std <- (Y - my) / sy
-  
-  # Ridge regression: b = inv(Z'Z + nu * I) * Z'y_std
-  Z_transpose <- t(Z)
-  ridge_coeff <- solve(Z_transpose %*% Z + nu * diag(N)) %*% (Z_transpose %*% y_std)
-  
-  # Forecast: pred = XX(end, :) * b * sy + my
-  pred <- (XX[nrow(XX), ] %*% ridge_coeff) * sy + my
-  
-  # Calculate the in-sample variance explained by the regression (MSE)
-  MSE <- var(y_std - Z %*% ridge_coeff, na.rm = TRUE)
-  
-  return(list(pred = pred, b = ridge_coeff, MSE = MSE))
-}
-
-
-
-# Example usage:
-# y <- dependent variable (vector)
-# x <- predictors matrix
-# p <- number of lags
-# nu <- penalization parameter for Ridge regression
-# h <- number of steps ahead to predict
-
-# result <- RIDGE_pred(y, x, p, nu, h)
-# print(result$pred)  # Predicted value
-# print(result$b)     # Ridge regression coefficients
-# print(result$MSE)   # In-sample variance explained (MSE)
-
-SET_ridge <- function(y, x, p, INfit, h) {
-  
-  nu_min <- 0
-  nu_max <- 10 #higher degree of penalization
-  IN_max <- 1e+32 
-  IN_min <- 0
-  IN_avg <- 1e+32
-  
-  while (abs(IN_avg - INfit) > 1e-7) {
-    
-    nu_avg <- (nu_min + nu_max) / 2
-    
-    result <- RIDGE_pred(y, x, p, nu_avg, h)
-    pred <- result$pred
-    b <- result$b
-    IN_avg <- result$MSE
-    
-    if (IN_avg > INfit) {
-      nu_min <- nu_min
-      nu_max <- nu_avg
-    } else {
-      nu_min <- nu_avg
-      nu_max <- nu_max
-    }
-  }
-  
-  nu <- nu_avg
-  b <- b[, ncol(b)] # variable aggregation
-  
-  return(list(nu = nu, b = b))
-}
-
-# LASSO
-
-
-# ---- STANDARDIZATION OF DATA
-
-# correlation among EA countries
-# EAdataQ <- select_if(EAdataQ, is.numeric)
-
-# ---- BAYASIAN SHRINKAGE 
-
-# (i)RIDGE
-
-# Selezione delle variabili da predire
-# 1   : GDP
-nn <- c(1)
-
-# Parametri
-p <- 0  # Numero di predittori ritardati
-
-rr <- c(1, 3, 5, 10, 25, 50, 75)  # Numero di componenti principali
-K <- rr  # Numero di predittori da selezionare tramite Lasso
-INfit <- seq(0.1, 0.9, by = 0.1)  # Proporzione di fit in-sample da spiegare con Ridge
-
-HH <- c(4)  # Numero di step avanti per il forecast
-
-# Numero di punti temporali per la stima del parametro: schema Rolling
-Jwind <- 68
-
+# Date di inizio della valutazione out-of-sample
 start_y <- 2017
-start_m <- 1  # Date di inizio per la valutazione out-of-sample
+start_m <- 01
 
-# Carica i dati dal file Excel di Stock e Watson (2005)
-library(readxl)
-# data_raw <- read_excel("hof.xls")
-matlabDates <- EAdataQ[,1]
-dates <- matlabDates
+DATA <- as.matrix(EAdataQ[, -1])  # Matrice dei dati: tempo in righe, variabili in colonne
+series <- colnames(EAdataQ)
+X <- DATA
 
-# time <- as.POSIXlt(dates)
-time <- dates
+# target variables
+target_var <- colnames(X)[nn]
 
-DATA <- as.matrix(EAdataQ[,-1])  # Matrice dei dati: tempo in righe, variabili in colonne
-series <- colnames(EAdataQ)  # Etichette delle variabili
+# Dimensioni del pannello
+TT <- nrow(X)
+NN <- ncol(X)
 
-# transf <- as.numeric(data_raw[1, -1])  # Indici per le trasformazioni da applicare a ciascuna serie
-
-# Reset delle date e del tempo per eliminare i punti iniziali rimossi
-# time <- time[14:length(time)]
-# dates <- dates[14:length(dates)]
-
-# Dimensione del pannello
-TT <- nrow(DATA)
-NN <- ncol(DATA)
-
-# Trova quando iniziare l'esercizio out-of-sample simulato
-start_sample <- which(format(time, "%Y") == start_y & format(time, "%m") == start_m)
-start_sample <- 68
-
-if (Jwind > start_sample) {
-  stop("la finestra rolling non può essere più grande del primo campione di valutazione")
-}
-
-cat("\nIl programma sta impostando i parametri di penalizzazione...\n\n")
+# Trova l'indice di inizio per l'out-of-sample
+start_sample <- which(year(EAdataQ$Time) == start_y & month(EAdataQ$Time) == start_m)
+if (Jwind > start_sample) stop("La finestra mobile non può essere più grande del primo campione di valutazione")
 
 j0 <- start_sample - Jwind + 1
+x <- X[j0:start_sample, ]
 
-x_temp <- DATA[j0:start_sample, ]  # Dati disponibili all'inizio della valutazione out-of-sample
-x <- DATA[j0:start_sample, ]  # Dati disponibili all'inizio della valutazione out-of-sample
-# x <- apply(x_temp, 2, function(col) outliers(col))  # Rimozione degli outliers
-
-x[, nn] <- x_temp[, nn]  # Mantiene le variabili selezionate
-x[, nn] <- x [, nn]  # Mantiene le variabili selezionate
+# ******************************* OUT OF SAMPLE ****************************** #
 
 
-# Imposta il parametro di penalizzazione RIDGE per spiegare la proporzione INfit di varianza
-nu_ridge <- list()
-for (jfit in seq_along(INfit)) {
-  for (k in seq_along(nn)) {  # Loop sulle serie da predire
-    for (h in HH) {  # Loop sugli orizzonti di previsione
-      nu_ridge[[h]][[k]][jfit] <- SET_ridge(x[, nn[k]], x, p, INfit[jfit], h)
-    }
-  }
+# ****************************** EVALUATION SAMPLE **************************** #
+
+# Dates of the beginning of the evaluation sample
+first_y <- 2018
+first_m <- 1
+
+# Find the index for the first out-of-sample period
+ind_first <- which(year(EAdataQ$Time) == first_y & month(EAdataQ$Time) == first_m)
+
+# Dates of the end of the evaluation sample
+last_y <- 2019
+last_m <- 10
+
+# Find the index for the last out-of-sample period
+ind_last <- which(year(EAdataQ$Time) == last_y & month(EAdataQ$Time) == last_m)
+
+
+# ==============================================================================
+# ===================== COMPARISON IN PREDICTION VISUALIZATION =================
+# ==============================================================================
+
+# In this section are presented the out of sample performances comparison between models
+
+add_prefix <- function(df, prefix) {
+  df %>%
+    rename_with(~ paste0(prefix, .), everything())
 }
 
-#(ii) LASSO
+best_FS_prediction <- add_prefix(best_FS_prediction, "FS_")
+best_r_prediction <- add_prefix(best_r_prediction, "r_")
+best_l_prediction <- add_prefix(best_l_prediction, "l_")
+best_pc_prediction <- add_prefix(best_pc_prediction, "pc_")
 
-# function -->   pred <- (XX[nrow(XX), ] %*% ridge_coeff) * sy + my
+prediction_comparison_list <- list(best_r_prediction, best_l_prediction, best_pc_prediction, best_FS_prediction)
+prediction_comparison_list <- lapply(prediction_comparison_list, function(df) {
+  df %>%
+    mutate(Index = seq(start_sample + HH, length(EAdataQ$Time)))
+})
 
-#(iii) PCR
+prediction_comparison <- reduce(prediction_comparison_list, left_join, by = "Index") %>%
+  select(-Index)
 
-# function -->   pred <- (XX[nrow(XX), ] %*% ridge_coeff) * sy + my
+getwd()
+path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+setwd(path)
+write_xlsx(prediction_comparison, "Results/Best Models/overall_prediction_comparison.xlsx")
 
+time_subset <- as.Date(EAdataQ$Time[ind_first:length(EAdataQ$Time)])
+
+prediction_comparison_long <- prediction_comparison %>%
+  mutate(Time = time_subset) %>%
+  mutate(across(where(is.numeric), ~ . / HH)) %>%
+  pivot_longer(cols = -Time, names_to = "Variable", values_to = "Value_pred")
+
+# Verifica che `nn` contenga i nomi delle colonne corretti
+EAdataQ_long <- EAdataQ %>%
+  select(Time, all_of(nn+1)) %>%  # Seleziona la colonna Time e le colonne specificate in nn
+  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
+               names_to = "Variable", 
+               values_to = "Value")
+
+
+EAdataQ_long_all <- EAdataQ_long %>%
+  expand_grid(Prefix = c("pc_", "r_", "l_", "FS_")) %>%
+  mutate(Variable = str_c(Prefix, Variable)) %>%
+  arrange(Variable, Time) %>%
+  select(-Prefix)
+
+output_pred_comp <- left_join(EAdataQ_long_all, prediction_comparison_long, by = c("Time", "Variable")) %>%
+  arrange(Time) %>%
+  pivot_longer(cols = c(Value, Value_pred), names_to = "Type", values_to = "Value") %>%
+  arrange(Variable, Time)
+
+# Create different datasets for every variable to predict
+
+## GDP
+
+output_pred_comp_GDP <- output_pred_comp %>%
+  filter(Variable %in% c("l_GDP_EA", "pc_GDP_EA", "r_GDP_EA", "FS_GDP_EA")) %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "pc_") ~ "PC",
+    str_detect(Variable, "r_") ~ "RIDGE",
+    str_detect(Variable, "l_") ~ "LASSO",
+    str_detect(Variable, "FS_") ~ "FarmSelect",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_GDP, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +
+  labs(
+    title = "Comparison of Models for GDP in the Euro Area",
+    x = "Year",
+    y = "GDP",
+    color = "Model Type",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
+  ) +
+  scale_color_manual(
+    values = c(
+      "PC.Value_pred" = "blue", 
+      "RIDGE.Value_pred" = "red", 
+      "LASSO.Value_pred" = "green",
+      "FarmSelect.Value_pred" = "brown", 
+      "Value" = "black"
+    )
+  ) +
+  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+
+
+## UNEMPLOYMENT
+
+output_pred_comp_UNETOT <- output_pred_comp %>%
+  filter(Variable %in% c("l_UNETOT_EA", "pc_UNETOT_EA", "r_UNETOT_EA", "FS_UNETOT_EA")) %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "pc_") ~ "PC",
+    str_detect(Variable, "r_") ~ "RIDGE",
+    str_detect(Variable, "l_") ~ "LASSO",
+    str_detect(Variable, "FS_") ~ "FarmSelect",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_UNETOT, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +
+  labs(
+    title = "Comparison of Models for UNETOT in the Euro Area",
+    x = "Year",
+    y = "GDP",
+    color = "Model Type",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
+  ) +
+  scale_color_manual(
+    values = c(
+      "PC.Value_pred" = "blue", 
+      "RIDGE.Value_pred" = "red", 
+      "LASSO.Value_pred" = "green",
+      "FarmSelect.Value_pred" = "brown", 
+      "Value" = "black"
+    )
+  ) +
+  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+
+## PRICES
+
+output_pred_comp_PP <- output_pred_comp %>%
+  filter(Variable %in% c("l_PPINRG_EA", "pc_PPINRG_EA", "r_PPINRG_EA", "FS_PPINRG_EA")) %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "pc_") ~ "PC",
+    str_detect(Variable, "r_") ~ "RIDGE",
+    str_detect(Variable, "l_") ~ "LASSO",
+    str_detect(Variable, "FS_") ~ "FarmSelect",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_PP, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +
+  labs(
+    title = "Comparison of Models for PPINRG in the Euro Area",
+    x = "Year",
+    y = "GDP",
+    color = "Model Type",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
+  ) +
+  scale_color_manual(
+    values = c(
+      "PC.Value_pred" = "blue", 
+      "RIDGE.Value_pred" = "red", 
+      "LASSO.Value_pred" = "green",
+      "FarmSelect.Value_pred" = "brown", 
+      "Value" = "black"
+    )
+  ) +
+  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
