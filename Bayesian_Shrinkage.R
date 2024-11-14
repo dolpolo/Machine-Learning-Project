@@ -352,12 +352,6 @@ for (j in start_sample:(TT - HH)) {
   }
 }
 
-
-
-
-
-
-
 ################################################################################
 # Inizializza i contenitori per le previsioni
 # pred_bpc <- vector("list", length = TT)
@@ -676,6 +670,10 @@ print(MSFE_RW_pc_matrix)
 MSFE_PC_ratio <- MSFE_PC_matrix / MSFE_RW_pc_matrix
 print(MSFE_PC_ratio)
 
+getwd()
+setwd("C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project")
+saveRDS(MSFE_PC_matrix, file= "Results/MSFE/MSFE_PC_matrix.rds")
+saveRDS(MSFE_PC_ratio, file= "Results/MSFE/MSFE_PC_ratio.rds")
 
 # ---- Visualization
 
@@ -992,6 +990,45 @@ saveRDS(best_l_prediction, file = "Results/Best Models/best_l_prediction.rds")
 
 # ---- PC ---- 
 
+# Inizializza una lista vuota per salvare i risultati
+best_PC_model <- data.frame(Variable = rownames(MSFE_PC_matrix),
+                            Best_MSFE = numeric(nrow(MSFE_PC_matrix)),
+                            Best_Parameter = character(nrow(MSFE_PC_matrix)),
+                            stringsAsFactors = FALSE)
+
+# Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
+penalization_map <- c("1" = 1, "3" = 2, "5" = 3, "10" = 4, 
+                      "25" = 5, "45" = 6, "60" = 7)
+
+# Loop per ogni riga della matrice MSFE
+for (i in 1:nrow(MSFE_PC_matrix)) {
+  
+  # Trova l'indice della colonna con il valore minimo nella riga i
+  min_index <- which.min(MSFE_PC_matrix[i, ])
+  
+  # Assegna il valore minimo e il nome della colonna nella lista dei risultati
+  best_PC_model$Best_MSFE[i] <- MSFE_PC_matrix[i, min_index]
+  best_PC_model$Best_Parameter[i] <- colnames(MSFE_PC_matrix)[min_index]
+  
+  # Ottieni il nome della penalizzazione migliore per questa variabile
+  best_parameter <- best_PC_model$Best_Parameter[i]
+  
+  # Controlla se la penalizzazione è presente nel mapping
+  if (best_parameter %in% names(penalization_map)) {
+    
+    # Ottieni l'indice corrispondente alla penalizzazione
+    penalization_index <- penalization_map[best_parameter]
+    
+  } else {
+    # Gestisci il caso in cui la penalizzazione non viene trovata
+    print(paste("Penalization", best_penalization, "not found for variable", rownames(MSFE_l_matrix)[i]))
+    best_l_model$nu_LASSO_l[i] <- NA  # Assegna NA se la penalizzazione non è trovata
+  }
+}
+
+# Visualizza i risultati
+print(best_l_model)
+
 # Inizializza una matrice vuota per le migliori predizioni per ogni anno
 best_pc_prediction <- matrix(NA, nrow = length(seq(from = ind_first, to = length(PC))), ncol = nrow(MSFE_PC_matrix))
 rownames(best_pc_prediction) <- seq(from = ind_first, to = length(PC))  # Assegna gli anni come nomi delle righe
@@ -1035,9 +1072,8 @@ best_pc_prediction <- as.data.frame(best_pc_prediction)
 
 path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
 setwd(path)
+saveRDS(best_PC_model, file = "Results/Best Models/best_PC_model.rds")
 saveRDS(best_pc_prediction, file = "Results/Best Models/best_pc_prediction.rds")
-
-
 
 
 # ==============================================================================
@@ -1045,9 +1081,9 @@ saveRDS(best_pc_prediction, file = "Results/Best Models/best_pc_prediction.rds")
 # ==============================================================================
 
 # Inizializza una matrice vuota per le migliori predizioni per ogni anno
-variable_selction <- matrix(NA, nrow = length(seq(from = start_sample, to = length(LASSO) - HH)), ncol = nrow(MSFE_l_matrix))
-rownames(variable_selction) <- seq(from = start_sample, to = length(LASSO) - HH)  # Assegna gli anni come nomi delle righe
-colnames(variable_selction) <- rownames(MSFE_l_matrix)  # Assegna le variabili come nomi delle colonne
+variable_selection <- matrix(NA, nrow = length(seq(from = start_sample, to = length(LASSO) - HH)), ncol = nrow(MSFE_l_matrix))
+rownames(variable_selection) <- seq(from = start_sample, to = length(LASSO) - HH)  # Assegna gli anni come nomi delle righe
+colnames(variable_selection) <- rownames(MSFE_l_matrix)  # Assegna le variabili come nomi delle colonne
 
 # Loop per ogni variabile (riga di MSFE_l_matrix)
 for (i in 1:nrow(MSFE_l_matrix)) {
@@ -1079,19 +1115,19 @@ for (i in 1:nrow(MSFE_l_matrix)) {
         if (length(model_selection_values) > 1) {
           # Ad esempio, prendi tutti i valori di 'model_selection' e assegnali
           # Potresti anche voler fare un'aggregazione, come la media, se vuoi un singolo valore
-          variable_selction[j - start_sample + 1, i] <- paste(model_selection_values, collapse = ", ")
+          variable_selection[j - start_sample + 1, i] <- paste(model_selection_values, collapse = ", ")
         } else {
           # Se c'è solo un valore, assegna quel valore
-          variable_selction[j - start_sample + 1, i] <- model_selection_values
+          variable_selection[j - start_sample + 1, i] <- model_selection_values
         }
       } else {
         # Se 'model_selection' non è presente nel modello, assegna NA
-        variable_selction[j - start_sample + 1, i] <- NA
+        variable_selection[j - start_sample + 1, i] <- NA
         print(paste("Attenzione: 'model_selection' non trovato per la variabile", rownames(MSFE_l_matrix)[i], "e l'anno", j))
       }
     } else {
       # Se l'indice è fuori limite o la lista non è valida, assegna NA
-      variable_selction[j - start_sample + 1, i] <- NA
+      variable_selection[j - start_sample + 1, i] <- NA
       print(paste("Attenzione: Penalization", best_penalization, "è fuori limite per la variabile", rownames(MSFE_l_matrix)[i], "e l'anno", j))
     }
   }
@@ -1099,18 +1135,18 @@ for (i in 1:nrow(MSFE_l_matrix)) {
 
 
 # Visualizza la matrice delle migliori predizioni per gli anni selezionati
-print(variable_selction)
+print(variable_selection)
 
 # the model selection is consistent. Every time we ask to select the variable according to the best penalization it extracts the same variables
 # in gdp it is not the case probabluy due to the fact it is high correlated?
 
 # Converti la matrice in formato long
-variable_selction_long <- as.data.frame(variable_selction) %>%
-  mutate(Year = rownames(variable_selction)) %>%
+variable_selection_long <- as.data.frame(variable_selection) %>%
+  mutate(Year = rownames(variable_selection)) %>%
   gather(key = "Variable", value = "SelectedModel", -Year)
 
 # Conta la frequenza delle selezioni per ogni variabile target
-freq_table <- variable_selction_long %>%
+freq_table <- variable_selection_long %>%
   group_by(Variable, SelectedModel) %>%
   summarise(Frequency = n(), .groups = 'drop')
 
@@ -1523,14 +1559,14 @@ ggplot(output_pred_comp_GDP_long, aes(x = Time, y = Value, color = interaction(M
   ) +
   scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
 
-## UNEMPLOYMENT
+## GGLB.LLN
 
 # Make sure the 'output_pred_comp' dataset is already filtered and in long format
-output_pred_comp_UNE <- output_pred_comp %>%
-  filter(Variable %in% c("r_UNETOT_EA", "pc_UNETOT_EA", "l_UNETOT_EA"))
+output_pred_comp_GGL <- output_pred_comp %>%
+  filter(Variable %in% c("r_GGLB.LLN_EA", "pc_GGLB.LLN_EA", "l_GGLB.LLN_EA"))
 
 # Add a column to distinguish models in the predictions
-output_pred_comp_UNE_long <- output_pred_comp_UNE %>%
+output_pred_comp_GGL_long <- output_pred_comp_GGL %>%
   mutate(Model = case_when(
     str_detect(Variable, "pc_") ~ "PC",
     str_detect(Variable, "r_") ~ "RIDGE",
@@ -1538,10 +1574,10 @@ output_pred_comp_UNE_long <- output_pred_comp_UNE %>%
     TRUE ~ "Unknown"
   ))
 
-ggplot(output_pred_comp_UNE_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+ggplot(output_pred_comp_GGL_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
   geom_line(size = 0.6) +  # Increase line thickness
   labs(
-    title = "Comparison of Models for Unemplyment in the Euro Area",
+    title = "Comparison of Models for GGLB.LLN in the Euro Area",
     x = "Year",
     y = "GDP",
     color = "Model Type",
