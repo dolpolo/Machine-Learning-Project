@@ -11,125 +11,130 @@ setwd(path)
 # Factor adjusted regularized method. 
 
 
-###########################
-## FarmSelect prediction ##
-###########################
+## FarmSelect
 
-
-FarmSelect_pred <- function(y, x, p, nu, h) {
-  # Initialize lagged predictors matrix
+FarmSelect_pred <- function(y, x, p, nu, h, MSFE_PC_matrix, target_index) {
+  
+  optimal_pc <- which.min(MSFE_PC_matrix[target_index, ])
+  
+  # Inizializza la matrice dei predittori con ritardi
   X <- do.call(cbind, lapply(0:p, function(j) x[(p + 1 - j):(nrow(x) - j), ]))
   
-  # Standardize the predictors matrix
+  # Standardizza la matrice dei predittori
   T <- nrow(X)
   N <- ncol(X)
   XX <- scale(X) / sqrt(N * T)
   
-  # Adjust the dependent variable y to match the lagged predictors
+  # Adatta la variabile dipendente y per abbinare i predittori ritardati
   y <- y[(p + 1):length(y)]
   
-  # Compute forecast-dependent variable: Y = (y_{+1} + ... + y_{+h}) / h
+  # Calcola la variabile dipendente con previsione: Y = (y_{+1} + ... + y_{+h}) / h
   Y <- stats::filter(y, rep(1/h, h), sides = 1)[(h + 1):length(y)]
   
-  # Standardize the dependent variable
+  # Standardizza la variabile dipendente
   my <- mean(Y, na.rm = TRUE)
   sy <- sd(Y, na.rm = TRUE)
   y_std <- (Y - my) / sy
   
-  # PCA analysis on the standardized predictors
+  # Analisi PCA sui predittori standardizzati
   pca_res <- prcomp(XX, center = FALSE)
   
-  # Extract first principal component scores and loadings
-  first_pc_scores <- pca_res$x[, 1]
-  first_pc_loadings <- pca_res$rotation[, 1]
+  # Ottieni i punteggi e i caricamenti dei componenti principali
+  pc_scores <- pca_res$x[, 1:optimal_pc]
+  pc_loadings <- pca_res$rotation[, 1:optimal_pc]
   
-  # Calculate high correlation component
-  first_pc_matrix <- matrix(first_pc_scores, nrow = length(first_pc_scores), ncol = 1)
-  high_corr <- first_pc_matrix %*% t(first_pc_loadings)
+  # Calcola la componente ad alta correlazione
+  high_corr <- pc_scores %*% t(pc_loadings)
   
-  # Remove high correlation component to get low correlation predictors
+  # Rimuovi la componente ad alta correlazione per ottenere predittori a bassa correlazione
   low_corr <- XX - high_corr
   
-  # Prepare the predictors for regression
+  # Prepara i predittori per la regressione
   Z <- low_corr[1:(nrow(low_corr) - h), ]
   
-  # Fit the Lasso model
+  # Fitta il modello Lasso
   FarmSelect_model <- glmnet(Z, y_std, alpha = 1, standardize = FALSE, lambda = nu)
   
-  # Make predictions and revert to the original scale
+  # Effettua le previsioni e ritorna alla scala originale
   pred <- predict(FarmSelect_model, newx = matrix(low_corr[nrow(low_corr), ], nrow = 1)) * sy + my
   
-  # Identify selected variables (non-zero coefficients)
+  # Identifica le variabili selezionate (coefficenti diversi da zero)
   selected_variables <- rownames(FarmSelect_model$beta)[FarmSelect_model$beta[, 1] != 0]
   
-  return(list(pred = pred, model_selection = selected_variables))
+  return(list(pred = pred, model_selection = selected_variables, optimal_pc = optimal_pc))
 }
 
 
-####################
-## SET_FarmSelect ##
-####################
+## SET_FarmSelect 
 
-SET_FarmSelect <- function(y, x, p, K, h) {
-  # Initialize lagged predictors matrix
+
+SET_FarmSelect <- function(y, x, p, K, h, MSFE_PC_matrix, target_index) {
+  # Trova il numero ottimale di componenti principali da rimuovere
+  optimal_pc <- which.min(MSFE_PC_matrix[target_index, ])
+  
+  # Inizializza la matrice dei predittori con ritardi
   X <- do.call(cbind, lapply(0:p, function(j) x[(p + 1 - j):(nrow(x) - j), ]))
   
-  # Standardize the predictors matrix
+  # Standardizza la matrice dei predittori
   T <- nrow(X)
   N <- ncol(X)
   XX <- scale(X) / sqrt(N * T)
   
-  # Adjust the dependent variable y to match the lagged predictors
+  # Adatta la variabile dipendente y per abbinare i predittori ritardati
   y <- y[(p + 1):length(y)]
   
-  # Prepare the predictors for regression
-  Z <- X[1:(nrow(X) - h), ]
-  
-  # Compute forecast-dependent variable: Y = (y_{+1} + ... + y_{+h}) / h
+  # Calcola la variabile dipendente con previsione: Y = (y_{+1} + ... + y_{+h}) / h
   Y <- stats::filter(y, rep(1/h, h), sides = 1)[(h + 1):length(y)]
   
-  # Standardize the dependent variable
+  # Standardizza la variabile dipendente
   my <- mean(Y, na.rm = TRUE)
   sy <- sd(Y, na.rm = TRUE)
   y_std <- (Y - my) / sy
   
-  # PCA analysis on the standardized predictors
+  # Analisi PCA sui predittori standardizzati
   pca_res <- prcomp(XX, center = FALSE)
   
-  # Extract first principal component scores and loadings
-  first_pc_scores <- pca_res$x[, 1]
-  first_pc_loadings <- pca_res$rotation[, 1]
+  # Ottieni i punteggi e i caricamenti per il numero ottimale di componenti principali
+  pc_scores <- pca_res$x[, 1:optimal_pc]
+  pc_loadings <- pca_res$rotation[, 1:optimal_pc]
   
-  # Calculate high correlation component
-  first_pc_matrix <- matrix(first_pc_scores, nrow = length(first_pc_scores), ncol = 1)
-  high_corr <- first_pc_matrix %*% t(first_pc_loadings)
+  # Calcola la componente ad alta correlazione
+  high_corr <- pc_scores %*% t(pc_loadings)
   
-  # Remove high correlation component to get low correlation predictors
+  # Rimuovi la componente ad alta correlazione per ottenere predittori a bassa correlazione
   low_corr <- XX - high_corr
   Z <- low_corr[1:(nrow(low_corr) - h), ]
   
-  # Fit the Lasso model
-  FarmSelect_model <- glmnet(Z, y_std, alpha = 1, standardize = FALSE, nlambda = 500, lambda.min.ratio = 0.00001)
+  # Fitta il modello Lasso con un ampio range di lambda
+  FarmSelect_model <- glmnet(Z, y_std, alpha = 1, standardize = FALSE, nlambda = 2500, lambda.min.ratio = 0.00001)
   
-  # Extract the degrees of freedom and lambda values
+  # Estrai i gradi di libertà e i valori di lambda
   FARM_df <- as.data.frame(cbind(FarmSelect_model[["df"]], FarmSelect_model[["lambda"]]))
   
-  # Select lambda based on the degree of freedom K
+  # Condizioni per calcolare `nu`
   if (K <= 10) {
-    nu <- FARM_df %>%
-      filter(V1 == K) %>%
-      filter(V2 == min(V2)) %>%
-      pull(V2)
+    # Controlla che FARM_df non sia vuoto
+    if (nrow(FARM_df %>% filter(V1 == K)) > 0) {
+      nu <- FARM_df %>%
+        filter(V1 == K) %>%
+        filter(V2 == min(V2, na.rm = TRUE)) %>%
+        pull(V2)
+    } else {
+      nu <- NA  # O un valore predefinito
+    }
   } else {
-    nu <- FARM_df %>%
-      filter(V1 == K) %>%
-      filter(V2 == max(V2)) %>%
-      pull(V2)
+    if (nrow(FARM_df %>% filter(V1 == K)) > 0) {
+      nu <- FARM_df %>%
+        filter(V1 == K) %>%
+        filter(V2 == max(V2, na.rm = TRUE)) %>%
+        pull(V2)
+    } else {
+      nu <- NA  # O un valore predefinito
+    }
   }
   
   return(list(nu = nu))
 }
-
 
 # ==============================================================================
 # =============================== GENERAL FUNCTIONS ============================

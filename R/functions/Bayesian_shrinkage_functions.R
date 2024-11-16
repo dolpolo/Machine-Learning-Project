@@ -207,7 +207,7 @@ SET_lasso <- function(y, x, p, K, h) {
   sy <- sd(Y, na.rm = TRUE)
   y_std <- (Y - my) / sy
   
-  lasso_model <- glmnet(Z, y_std, alpha = 1, standardize=FALSE, nlambda=500, lambda.min.ratio=0.00001)
+  lasso_model <- glmnet(Z, y_std, alpha = 1, standardize=FALSE, nlambda = 1500, lambda.min.ratio=0.00001)
   lasso_df <- as.data.frame(cbind(lasso_model[["df"]],lasso_model[["lambda"]]))
   if (K <= 10) {
     nu <- lasso_df %>%

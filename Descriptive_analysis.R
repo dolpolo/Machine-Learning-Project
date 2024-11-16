@@ -110,7 +110,7 @@ EAdataQ <- EAdataQ %>%
 # PACF: Partial autocorrelation between a variable and a given lag.
 
 target_variables <- EAdataQ %>%
-  select(GDP_EA, UNETOT_EA, GGLB.LLN_EA, PPIDCOG_EA)
+  select(GDP_EA, WS_EA, GGLB.LLN_EA, PPINRG_EA)
 
 for (var in names(target_variables)) {
   # Seleziona la colonna come serie temporale
@@ -146,15 +146,18 @@ print(correlation_matrix)
 # Converti la matrice di correlazione in un formato lungo per ggplot
 melted_corr <- melt(correlation_matrix)
 
-# Crea la heatmap
 ggplot(data = melted_corr, aes(x = Var1, y = Var2, fill = value)) +
   geom_tile() +
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
                        midpoint = 0, limit = c(-1, 1), space = "Lab", 
-                       name="Correlation") +
+                       name = "Correlation") +
   theme_minimal() + 
-  theme(axis.text.x = element_text(angle = 90, vjust = 1, 
-                                   size = 9, hjust = 1)) +
+  theme(
+    axis.text.x = element_blank(),  # Rimuove i testi sull'asse x
+    axis.text.y = element_blank(),  # Rimuove i testi sull'asse y
+    axis.ticks = element_blank()    # Rimuove i tick dagli assi
+  ) +
+  labs(x = NULL, y = NULL) +  # Rimuove i nomi degli assi
   coord_fixed()
 
 

@@ -28,6 +28,10 @@ EAdataQ <- read_xlsx("data/EA-MD-QD/EAdataQ_HT.xlsx")
 EAdataQ <- EAdataQ %>%
   filter(Time <= as.Date("2019-10-01"))
 
+MSFE_PC_matrix <- readRDS("Results/MSFE/MSFE_PC_matrix.rds")
+MSFE_PC_ratio <- readRDS("Results/MSFE/MSFE_PC_ratio.rds")
+best_pc_prediction <- readRDS("Results/Best Models/best_pc_prediction.rds")
+
 # ---- CALL FUNCTIOINS ----
 # call the Bayesian Shrinkage functions
 # lapply(list.files("R/functions/", full.names = TRUE), source)
@@ -36,20 +40,20 @@ source("R/functions/FarmSelect_functions.R")
 
 # ---- SET PARAMETERS ----
 # Dependendent variables to be predicted
-nn <- c(1,33,97)
+nn <- c(1,37,97)
 
 # Parameters
 p <- 0  # Number of lagged predictors
-rr <- c(1, 3, 5, 10, 25, 45, 60)  # Number of principal components
+rr <- c(1, 3, 5, 10, 25, 40, 50)  # Number of principal components
 K <- rr  # Number of predictors with LASSO
 HH <- c(4)  # Steap-ahead prediction
-Jwind <- 68  # Rolling window
+Jwind <- 56  # Rolling window
 
 
 # ********************************* IN SAMPLE ******************************** #
 
 # Date di inizio della valutazione out-of-sample
-start_y <- 2017
+start_y <- 2014
 start_m <- 01
 
 DATA <- as.matrix(EAdataQ[, -1])  # Matrice dei dati: tempo in righe, variabili in colonne
@@ -71,21 +75,40 @@ if (Jwind > start_sample) stop("La finestra mobile non può essere più grande d
 j0 <- start_sample - Jwind + 1
 x <- X[j0:start_sample, ]
 
+
+
 # ==============================================================================
 # ============================= LASSO PENALIZATION ============================= 
 # ==============================================================================
 
-# Impostazione del parametro di penalizzazione LASSO
 nu_lasso <- list()
+
 for (jK in seq_along(K)) {
   for (k in seq_along(nn)) {
     for (h in HH) {
-      nu_lasso[[paste(h, k, sep = "_")]][jK] <- SET_FarmSelect(x[, nn[k]], x, p, K[jK], h)
+      
+      # Inizializza `nu_lasso[[paste(h, k, sep = "_")]]` come vettore vuoto se non esiste
+      if (is.null(nu_lasso[[paste(h, k, sep = "_")]])) {
+        nu_lasso[[paste(h, k, sep = "_")]] <- numeric(length(K))  # O usa `rep(NA, length(K))` se vuoi gestire i casi mancanti
+      }
+      
+      # Calcola il valore di `nu` utilizzando `SET_FarmSelect`
+      nu_result <- SET_FarmSelect(
+        y = x[, nn[k]],
+        x = x,
+        p = p,
+        K = K[jK],
+        h = h,
+        MSFE_PC_matrix = MSFE_PC_matrix,
+        target_index = k  
+      )$nu
+      
+      # Assegna il risultato a `nu_lasso`
+      nu_lasso[[paste(h, k, sep = "_")]][jK] <- if (!is.null(nu_result) && length(nu_result) > 0) nu_result else NA
     }
   }
 }
 nu_lasso
-
 # ================================= out of sample ==============================
 
 # ==============================================================================
@@ -107,33 +130,42 @@ RW_FS <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 for (j in start_sample:(TT - HH)) {
   
   # Definisci il campione di stima
-  j0 <- j - Jwind + 1 # from where the rolling windows starts
+  j0 <- j - Jwind + 1 # Punto di partenza per la finestra mobile
   
   # Dati disponibili ad ogni punto di valutazione
-  x <- X[j0:j, ]  # I dati disponibili ad ogni punto di tempo
+  x <- X[j0:j, ]  # Dati alla data j
   
   for (k in seq_along(nn)) {
     
     for (jK in seq_along(K)) {
-    
-      # Costanti di normalizzazione (capire l'if-else da loro)
+      
+      # Costanti di normalizzazione (verifica la necessità di usare const)
       const <- 4
       
       # Calcolo delle previsioni FarmSelect
-        for (h in HH) {  # Ciclo su numero di passi avanti
-          pred_FS[[j]][[k]][[jK]]<- FarmSelect_pred(x[, nn[k]], x, p, nu_lasso[[k]][[jK]], h)
-          FarmSelect[[j+h]][[k]][[jK]] <- pred_FS[[j]][[k]][[jK]][["pred"]] * const
-        #variance da inserire
+      for (h in HH) {  # Ciclo sui passi avanti
         
-       
-        # Calcola il valore vero da prevedere
-        temp <- mean(X[(j + 1):(j + h), nn[k]])
+        # Previsione FarmSelect con la funzione FarmSelect_pred
+        pred_FS[[j]][[k]][[jK]] <- FarmSelect_pred(
+          y = x[, nn[k]], 
+          x = x, 
+          p = p, 
+          nu = nu_lasso[[paste(h, k, sep = "_")]][jK], # Lambda ottimale
+          h = h, 
+          MSFE_PC_matrix = MSFE_PC_matrix, 
+          target_index = k  # Indice variabile target corrente
+        )
+        
+        # Salvare la previsione con normalizzazione
+        FarmSelect[[j+h]][[k]][[jK]] <- pred_FS[[j]][[k]][[jK]][["pred"]] * const
+        
+        # Calcolo del valore reale da prevedere
+        temp <- mean(X[(j + 1):(j + h), nn[k]], na.rm = TRUE)
         true_FS[[j+h]][[k]][[jK]] <- temp * const
         
-        # Constant Growth rate
+        # Previsione RW con crescita costante
         temp <- RW_pred(x[, nn[k]], h)
         RW_FS[[j+h]][[k]][[jK]] <- temp * const
-        
       }
     }
   }
@@ -141,12 +173,10 @@ for (j in start_sample:(TT - HH)) {
 
 
 
-
-
 # ****************************** EVALUATION SAMPLE **************************** #
 
 # Dates of the beginning of the evaluation sample
-first_y <- 2018
+first_y <- 2015
 first_m <- 1
 
 # Find the index for the first out-of-sample period
@@ -254,8 +284,8 @@ best_FS_model <- data.frame(Variable = rownames(MSFE_FS_matrix),
                             stringsAsFactors = FALSE)
 
 # Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
-penalization_map <- c("1" = 1, "2" = 2, "3" = 3, "4" = 4, 
-                      "5" = 5, "6" = 6, "7" = 7, "8" = 8)
+penalization_map <- c("1" = 1, "3" = 2, "5" = 3, "10" = 4, 
+                      "15" = 5, "40" = 6, "50" = 7)
 
 # Loop per ogni riga della matrice MSFE
 for (i in 1:nrow(MSFE_FS_matrix)) {
@@ -398,6 +428,40 @@ for (i in 1:nrow(MSFE_FS_matrix)) {
 # Visualizza la matrice delle migliori predizioni per gli anni selezionati
 print(variable_selction)
 
+# Trasforma in data frame per manipolazione
+variable_selection_df <- as.data.frame(variable_selction)
+
+# Rendi i dati "long" (una riga per ogni variabile selezionata)
+freq_table <- variable_selection_df %>%
+  pivot_longer(cols = everything(), names_to = "Target", values_to = "SelectedVariables") %>%
+  # Dividi le variabili multiple in singole righe
+  separate_rows(SelectedVariables, sep = ",") %>%
+  # Conta la frequenza per variabile selezionata
+  count(Target, SelectedVariables, name = "Frequency") %>%
+  # Ordina i risultati per Target e frequenza
+  arrange(Target, desc(Frequency))
+
+# Visualizza la tabella risultante
+print(freq_table)
+
+# Filtra le 5 variabili più selezionate per ciascuna variabile target
+top_5_per_target <- freq_table %>%
+  group_by(Target) %>%
+  slice_max(Frequency, n = 5) %>%  # Prendi le 5 con frequenza più alta
+  ungroup()
+
+# Trasforma in lista di matrici (una per ogni variabile target)
+top_5_matrices <- top_5_per_target %>%
+  group_split(Target) %>%
+  setNames(unique(top_5_per_target$Target)) %>%
+  lapply(function(df) {
+    matrix(data = c(df$SelectedVariables, df$Frequency),
+           ncol = 2,
+           dimnames = list(NULL, c("Variable", "Frequency")))
+  })
+
+# Visualizza le matrici per ciascun target
+top_5_matrices$GDP  # Esempio: matrice per il target GDP
 # the model selection is consistent. Every time we ask to select the variable according to the best penalization it extracts the same variables
 # in gdp it is not the case probabluy due to the fact it is high correlated?
 
@@ -411,15 +475,16 @@ freq_table <- variable_selction_long %>%
   group_by(Variable, SelectedModel) %>%
   summarise(Frequency = n(), .groups = 'drop')
 
-# Crea un grafico delle frequenze delle selezioni
 ggplot(freq_table, aes(x = Variable, y = Frequency, fill = SelectedModel)) +
   geom_bar(stat = "identity", position = "dodge") +
   labs(title = "Frequence variable selection for each target",
        x = "Target Variable",
-       y = "Frequence",
+       y = "Frequency",
        fill = "Model Selection") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Ruota le etichette dell'asse x
+  guides(fill = "none")  # Rimuove la legenda
+
 
 
 # ==============================================================================
@@ -574,22 +639,22 @@ ggplot(output_pred_comp_GDP_long, aes(x = Time, y = Value, color = interaction(M
 ## UNEMPLOYMENT
 
 # Make sure the 'output_pred_comp' dataset is already filtered and in long format
-output_pred_comp_UNE <- output_pred_comp %>%
-  filter(Variable %in% c("FS_UNETOT_EA"))
+output_pred_comp_WS <- output_pred_comp %>%
+  filter(Variable %in% c("FS_WS_EA"))
 
 # Add a column to distinguish models in the predictions
-output_pred_comp_UNE_long <- output_pred_comp_UNE %>%
+output_pred_comp_WS_long <- output_pred_comp_WS %>%
   mutate(Model = case_when(
     str_detect(Variable, "FS_") ~ "FarmSelect",
     TRUE ~ "Unknown"
   ))
 
-ggplot(output_pred_comp_UNE_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+ggplot(output_pred_comp_WS_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
   geom_line(size = 0.6) +  # Increase line thickness
   labs(
-    title = "Comparison of Models for Unemplyment in the Euro Area",
+    title = "Comparison of Models for WS in the Euro Area",
     x = "Year",
-    y = "GDP",
+    y = "Wage and Salaries",
     color = "Model Type",
     linetype = "Type"
   ) +
@@ -649,3 +714,4 @@ ggplot(output_pred_comp_PP_long, aes(x = Time, y = Value, color = interaction(Mo
     )
   ) +
   scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+

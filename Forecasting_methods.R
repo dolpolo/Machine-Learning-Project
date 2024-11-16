@@ -30,20 +30,20 @@ best_FS_prediction <- readRDS("Results/Best Models/best_FS_prediction.rds")
 
 # ---- SET PARAMETERS ----
 # Dependendent variables to be predicted
-nn <- c(1,33,97)
+nn <- c(1,37,97)
 
 # Parameters
 p <- 0  # Number of lagged predictors
-rr <- c(1, 3, 5, 10, 25, 45, 60)  # Number of principal components
+rr <- c(1, 3, 5, 10, 25, 40, 50)  # Number of principal components
 K <- rr  # Number of predictors with LASSO
 INfit <- seq(0.1, 0.9, by = 0.1)  # In-sample residual variance explained by Ridge
 HH <- c(4)  # Steap-ahead prediction
-Jwind <- 68  # Rolling window
+Jwind <- 56  # Rolling window
 
 # ********************************* IN SAMPLE ******************************** #
 
 # Date di inizio della valutazione out-of-sample
-start_y <- 2017
+start_y <- 2014
 start_m <- 01
 
 DATA <- as.matrix(EAdataQ[, -1])  # Matrice dei dati: tempo in righe, variabili in colonne
@@ -70,7 +70,7 @@ x <- X[j0:start_sample, ]
 # ****************************** EVALUATION SAMPLE **************************** #
 
 # Dates of the beginning of the evaluation sample
-first_y <- 2018
+first_y <- 2015
 first_m <- 1
 
 # Find the index for the first out-of-sample period
@@ -160,7 +160,7 @@ ggplot(output_pred_comp_GDP, aes(x = Time, y = Value, color = interaction(Model,
     title = "Comparison of Models for GDP in the Euro Area",
     x = "Year",
     y = "GDP",
-    color = "Model Type",
+    color = "Model",
     linetype = "Type"
   ) +
   theme_minimal() +
@@ -184,10 +184,10 @@ ggplot(output_pred_comp_GDP, aes(x = Time, y = Value, color = interaction(Model,
   scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
 
 
-## UNEMPLOYMENT
+## WS
 
-output_pred_comp_UNETOT <- output_pred_comp %>%
-  filter(Variable %in% c("l_UNETOT_EA", "pc_UNETOT_EA", "r_UNETOT_EA", "FS_UNETOT_EA")) %>%
+output_pred_comp_WS <- output_pred_comp %>%
+  filter(Variable %in% c("l_WS_EA", "pc_WS_EA", "r_WS_EA", "FS_WS_EA")) %>%
   mutate(Model = case_when(
     str_detect(Variable, "pc_") ~ "PC",
     str_detect(Variable, "r_") ~ "RIDGE",
@@ -196,13 +196,13 @@ output_pred_comp_UNETOT <- output_pred_comp %>%
     TRUE ~ "Unknown"
   ))
 
-ggplot(output_pred_comp_UNETOT, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+ggplot(output_pred_comp_WS, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
   geom_line(size = 0.6) +
   labs(
-    title = "Comparison of Models for UNETOT in the Euro Area",
+    title = "Comparison of Models for WS in the Euro Area",
     x = "Year",
-    y = "GDP",
-    color = "Model Type",
+    y = "Wages and salaries",
+    color = "Model",
     linetype = "Type"
   ) +
   theme_minimal() +
@@ -243,7 +243,7 @@ ggplot(output_pred_comp_PP, aes(x = Time, y = Value, color = interaction(Model, 
     title = "Comparison of Models for PPINRG in the Euro Area",
     x = "Year",
     y = "GDP",
-    color = "Model Type",
+    color = "Model",
     linetype = "Type"
   ) +
   theme_minimal() +
@@ -260,8 +260,9 @@ ggplot(output_pred_comp_PP, aes(x = Time, y = Value, color = interaction(Model, 
       "PC.Value_pred" = "blue", 
       "RIDGE.Value_pred" = "red", 
       "LASSO.Value_pred" = "green",
-      "FarmSelect.Value_pred" = "brown", 
+      "FarmSelect.Value_pred" = "violet", 
       "Value" = "black"
     )
   ) +
   scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+

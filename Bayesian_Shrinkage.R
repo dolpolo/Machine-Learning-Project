@@ -15,6 +15,8 @@ library(pls)
 library(lars)
 library(RSpectra)
 library(glmnet)
+library(xtable)
+
 
 
 # **************************************************************************** #
@@ -45,20 +47,20 @@ source("R/functions/Bayesian_shrinkage_functions.R")
 
 # ---- SET PARAMETERS ----
 # Dependendent variables to be predicted
-nn <- c(1,33,97)
+nn <- c(1,37,97)
 
 # Parameters
 p <- 0  # Number of lagged predictors
-rr <- c(1, 3, 5, 10, 25, 45, 60)  # Number of principal components
+rr <- c(1, 3, 5, 10, 25, 40, 50)  # Number of principal components
 K <- rr  # Number of predictors with LASSO
 INfit <- seq(0.1, 0.9, by = 0.1)  # In-sample residual variance explained by Ridge
 HH <- c(4)  # Steap-ahead prediction
-Jwind <- 68  # Rolling window
+Jwind <- 56  # Rolling window
 
 # ********************************* IN SAMPLE ******************************** #
 
 # Date di inizio della valutazione out-of-sample
-start_y <- 2017
+start_y <- 2014
 start_m <- 01
 
 DATA <- as.matrix(EAdataQ[, -1])  # Matrice dei dati: tempo in righe, variabili in colonne
@@ -143,6 +145,43 @@ multiply <- as.numeric(T*N)
 # Moltiplica ogni elemento di nu_ridge per T * N usando lapply
 NT_nu_ridge <- lapply(nu_ridge, function(x) as.numeric(x) * multiply)
 NT_nu_ridge
+
+NT_nu_ridge <- as.data.frame(NT_nu_ridge)
+NT_nu_ridge_t <- t(NT_nu_ridge)
+
+target_var_names <- as.character(target_var)
+
+# Combina i nomi per rinominare le colonne
+col_names <- c(as.character(INfit))
+
+# Applica i nuovi nomi alle colonne del dataframe
+colnames(NT_nu_ridge_t) <- col_names
+rownames(NT_nu_ridge_t) <- target_var_names 
+
+# Converte la matrice in codice LaTeX
+LTX_NT_nu_ridge_t <- xtable(NT_nu_ridge_t)
+
+# Stampa il codice LaTeX
+print(LTX_NT_nu_ridge_t, type = "latex")
+
+
+# Assigning dependent variable names
+for (k in seq_along(nn)){
+  # Construct the name dynamically
+  element_name <- paste0("4_", nn[k])
+  
+  # Assign the name to the i-th element of nu_ridge
+  names(nu_LASSO)[k] <- element_name
+}
+
+
+# Assigning INfit values to each elememnt of the list
+for (element_name in names(nu_LASSO)) {
+  
+  # Assign names to each value in `nu_ridge[[element_name]]` based on `residual_variances`
+  names(nu_LASSO[[element_name]]) <- K
+}
+
 
 
 # ****************************** OUT OF SAMPLE ******************************* #
@@ -402,7 +441,7 @@ for (j in start_sample:(TT - HH)) {
 # ****************************** EVALUATION SAMPLE **************************** #
 
 # Dates of the beginning of the evaluation sample
-first_y <- 2018
+first_y <- 2015
 first_m <- 1
 
 # Find the index for the first out-of-sample period
@@ -907,7 +946,7 @@ best_l_model <- data.frame(Variable = rownames(MSFE_l_matrix),
 
 # Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
 penalization_map <- c("1" = 1, "3" = 2, "5" = 3, "10" = 4, 
-                      "25" = 5, "45" = 6, "60" = 7)
+                      "25" = 5, "40" = 6, "50" = 7)
 
 # Loop per ogni riga della matrice MSFE
 for (i in 1:nrow(MSFE_l_matrix)) {
@@ -998,7 +1037,7 @@ best_PC_model <- data.frame(Variable = rownames(MSFE_PC_matrix),
 
 # Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
 penalization_map <- c("1" = 1, "3" = 2, "5" = 3, "10" = 4, 
-                      "25" = 5, "45" = 6, "60" = 7)
+                      "25" = 5, "40" = 6, "50" = 7)
 
 # Loop per ogni riga della matrice MSFE
 for (i in 1:nrow(MSFE_PC_matrix)) {
@@ -1162,7 +1201,60 @@ ggplot(freq_table, aes(x = Variable, y = Frequency, fill = SelectedModel)) +
 
 
 
+# Trasforma in data frame per manipolazione
+variable_selection_df <- as.data.frame(variable_selection)
 
+# Rendi i dati "long" (una riga per ogni variabile selezionata)
+freq_table <- variable_selection_df %>%
+  pivot_longer(cols = everything(), names_to = "Target", values_to = "SelectedVariables") %>%
+  # Dividi le variabili multiple in singole righe
+  separate_rows(SelectedVariables, sep = ",") %>%
+  # Conta la frequenza per variabile selezionata
+  count(Target, SelectedVariables, name = "Frequency") %>%
+  # Ordina i risultati per Target e frequenza
+  arrange(Target, desc(Frequency))
+
+# Visualizza la tabella risultante
+print(freq_table)
+
+# Filtra le 5 variabili più selezionate per ciascuna variabile target
+top_5_per_target <- freq_table %>%
+  group_by(Target) %>%
+  slice_max(Frequency, n = 5) %>%  # Prendi le 5 con frequenza più alta
+  ungroup()
+
+# Trasforma in lista di matrici (una per ogni variabile target)
+top_5_matrices <- top_5_per_target %>%
+  group_split(Target) %>%
+  setNames(unique(top_5_per_target$Target)) %>%
+  lapply(function(df) {
+    matrix(data = c(df$SelectedVariables, df$Frequency),
+           ncol = 2,
+           dimnames = list(NULL, c("Variable", "Frequency")))
+  })
+
+# Visualizza le matrici per ciascun target
+top_5_matrices$GDP 
+
+# Grafico delle frequenze per le top 5 variabili più selezionate
+top_5_plot <- top_5_per_target %>%
+  ggplot(aes(x = reorder(SelectedVariables, -Frequency), y = Frequency, fill = Target)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  facet_wrap(~Target, scales = "free_x", nrow = 1) +  # Dividi per target
+  labs(
+    title = "Top 5 Variables Selected for Each Target",
+    x = "Variable",
+    y = "Frequency",
+    fill = "Target"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
+  )
+
+# Visualizza il grafico
+print(top_5_plot)
 # ==============================================================================
 # ========================== PREDICTION VISUALIZATION ========================== 
 # ==============================================================================
@@ -1559,14 +1651,14 @@ ggplot(output_pred_comp_GDP_long, aes(x = Time, y = Value, color = interaction(M
   ) +
   scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
 
-## GGLB.LLN
+## WS
 
 # Make sure the 'output_pred_comp' dataset is already filtered and in long format
-output_pred_comp_GGL <- output_pred_comp %>%
-  filter(Variable %in% c("r_GGLB.LLN_EA", "pc_GGLB.LLN_EA", "l_GGLB.LLN_EA"))
+output_pred_comp_WS <- output_pred_comp %>%
+  filter(Variable %in% c("r_WS_EA", "pc_WS_EA", "l_WS_EA"))
 
 # Add a column to distinguish models in the predictions
-output_pred_comp_GGL_long <- output_pred_comp_GGL %>%
+output_pred_comp_WS_long <- output_pred_comp_WS %>%
   mutate(Model = case_when(
     str_detect(Variable, "pc_") ~ "PC",
     str_detect(Variable, "r_") ~ "RIDGE",
@@ -1574,12 +1666,12 @@ output_pred_comp_GGL_long <- output_pred_comp_GGL %>%
     TRUE ~ "Unknown"
   ))
 
-ggplot(output_pred_comp_GGL_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+ggplot(output_pred_comp_WS_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
   geom_line(size = 0.6) +  # Increase line thickness
   labs(
-    title = "Comparison of Models for GGLB.LLN in the Euro Area",
+    title = "Comparison of Models for WS in the Euro Area",
     x = "Year",
-    y = "GDP",
+    y = "Wage and Salaries",
     color = "Model Type",
     linetype = "Type"
   ) +
