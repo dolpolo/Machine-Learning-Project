@@ -19,6 +19,7 @@ EAdataQ <- read_xlsx("data/EA-MD-QD/EAdataQ_HT.xlsx")
 EAdataQ <- EAdataQ %>%
   filter(Time <= as.Date("2019-10-01"))
 
+
 best_l_model <- readRDS("Results/Best Models/best_l_model.rds")
 best_r_model <- readRDS("Results/Best Models/best_r_model.rds")
 best_FS_model <- readRDS("Results/Best Models/best_FS_model.rds")
@@ -40,31 +41,6 @@ INfit <- seq(0.1, 0.9, by = 0.1)  # In-sample residual variance explained by Rid
 HH <- c(4)  # Steap-ahead prediction
 Jwind <- 56  # Rolling window
 
-# ********************************* IN SAMPLE ******************************** #
-
-# Date di inizio della valutazione out-of-sample
-start_y <- 2014
-start_m <- 01
-
-DATA <- as.matrix(EAdataQ[, -1])  # Matrice dei dati: tempo in righe, variabili in colonne
-series <- colnames(EAdataQ)
-X <- DATA
-
-# target variables
-target_var <- colnames(X)[nn]
-
-# Dimensioni del pannello
-TT <- nrow(X)
-NN <- ncol(X)
-
-# Trova l'indice di inizio per l'out-of-sample
-start_sample <- which(year(EAdataQ$Time) == start_y & month(EAdataQ$Time) == start_m)
-if (Jwind > start_sample) stop("La finestra mobile non può essere più grande del primo campione di valutazione")
-
-j0 <- start_sample - Jwind + 1
-x <- X[j0:start_sample, ]
-
-# ******************************* OUT OF SAMPLE ****************************** #
 
 
 # ****************************** EVALUATION SAMPLE **************************** #
@@ -109,9 +85,9 @@ prediction_comparison_list <- lapply(prediction_comparison_list, function(df) {
 prediction_comparison <- reduce(prediction_comparison_list, left_join, by = "Index") %>%
   select(-Index)
 
-getwd()
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
-setwd(path)
+#getwd()
+#path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+#setwd(path)
 write_xlsx(prediction_comparison, "Results/Best Models/overall_prediction_comparison.xlsx")
 
 time_subset <- as.Date(EAdataQ$Time[ind_first:length(EAdataQ$Time)])
@@ -135,20 +111,21 @@ EAdataQ_long_all <- EAdataQ_long %>%
   arrange(Variable, Time) %>%
   select(-Prefix)
 
-output_pred_comp <- left_join(EAdataQ_long_all, prediction_comparison_long, by = c("Time", "Variable")) %>%
+# Filter the output_pred_comp dataset for dates from 2015-01-01 onward
+output_pred_comp_filtered <- left_join(EAdataQ_long_all, prediction_comparison_long, by = c("Time", "Variable")) %>%
   arrange(Time) %>%
   pivot_longer(cols = c(Value, Value_pred), names_to = "Type", values_to = "Value") %>%
-  arrange(Variable, Time)
+  arrange(Variable, Time) %>%
+  filter(Time >= as.Date("2015-01-01"))
+
 
 # Create different datasets for every variable to predict
 
 ## GDP
 
-output_pred_comp_GDP <- output_pred_comp %>%
-  filter(Variable %in% c("l_GDP_EA", "pc_GDP_EA", "r_GDP_EA", "FS_GDP_EA")) %>%
+output_pred_comp_GDP <- output_pred_comp_filtered %>%
+  filter(Variable %in% c("l_GDP_EA", "FS_GDP_EA")) %>%
   mutate(Model = case_when(
-    str_detect(Variable, "pc_") ~ "PC",
-    str_detect(Variable, "r_") ~ "RIDGE",
     str_detect(Variable, "l_") ~ "LASSO",
     str_detect(Variable, "FS_") ~ "FarmSelect",
     TRUE ~ "Unknown"
@@ -169,28 +146,138 @@ ggplot(output_pred_comp_GDP, aes(x = Time, y = Value, color = interaction(Model,
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
     axis.title = element_text(size = 12),
     axis.text = element_text(size = 10),
-    panel.grid = element_blank(),
+    panel.grid.major = element_line(color = "lightgray", size = 0.5),
+    panel.grid.minor = element_blank(),
     panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
   ) +
   scale_color_manual(
     values = c(
-      "PC.Value_pred" = "blue", 
-      "RIDGE.Value_pred" = "red", 
-      "LASSO.Value_pred" = "green",
-      "FarmSelect.Value_pred" = "brown", 
+      "LASSO.Value_pred" = "forestgreen",
+      "FarmSelect.Value_pred" = "darkviolet", 
       "Value" = "black"
+    ),
+    labels = c(
+      "LASSO.Value_pred" = "LASSO",
+      "FarmSelect.Value_pred" = "FarmSelect", 
+      "Value" = "True Value"
     )
   ) +
-  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+  scale_linetype_manual(
+    values = c(
+      "Value" = "solid", 
+      "Value_pred" = "dashed"
+    ),
+    labels = c(
+      "Value" = "True Value",
+      "Value_pred" = "Forecast"
+    )
+  )
+
+output_pred_comp_GDP <- output_pred_comp_filtered %>%
+  filter(Variable %in% c("r_GDP_EA", "pc_GDP_EA")) %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "r_") ~ "RIDGE",
+    str_detect(Variable, "pc_") ~ "PC",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_GDP, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +
+  labs(
+    title = "Comparison of Models for GDP in the Euro Area",
+    x = "Year",
+    y = "GDP",
+    color = "Model",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "lightgray", size = 0.5),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
+  ) +
+  scale_color_manual(
+    values = c(
+      "PC.Value_pred" = "darkorange",
+      "RIDGE.Value_pred" = "blue", 
+      "Value" = "black"
+    ),
+    labels = c(
+      "PC.Value_pred" = "PCR",
+      "RIDGE.Value_pred" = "Ridge", 
+      "Value" = "True Value"
+    )
+  ) +
+  scale_linetype_manual(
+    values = c(
+      "Value" = "solid", 
+      "Value_pred" = "dashed"
+    ),
+    labels = c(
+      "Value" = "True Value",
+      "Value_pred" = "Forecast"
+    )
+  )
 
 
 ## WS
 
-output_pred_comp_WS <- output_pred_comp %>%
-  filter(Variable %in% c("l_WS_EA", "pc_WS_EA", "r_WS_EA", "FS_WS_EA")) %>%
+output_pred_comp_WS <- output_pred_comp_filtered %>%
+  filter(Variable %in% c("pc_WS_EA", "r_WS_EA")) %>%
   mutate(Model = case_when(
     str_detect(Variable, "pc_") ~ "PC",
     str_detect(Variable, "r_") ~ "RIDGE",
+    TRUE ~ "Unknown"
+  ))
+
+ggplot(output_pred_comp_WS, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +
+  labs(
+    title = "Comparison of Models for WS in the Euro Area",
+    x = "Year",
+    y = "Wages and salaries",
+    color = "Model",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "lightgray", size = 0.5),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
+  ) +
+  scale_color_manual(
+    values = c(
+      "PC.Value_pred" = "darkorange",
+      "RIDGE.Value_pred" = "blue", 
+      "Value" = "black"
+    ),
+    labels = c(
+      "PC.Value_pred" = "PCR",
+      "RIDGE.Value_pred" = "Ridge", 
+      "Value" = "True Value"
+    )
+  ) +
+  scale_linetype_manual(
+    values = c(
+      "Value" = "solid", 
+      "Value_pred" = "dashed"
+    ),
+    labels = c(
+      "Value" = "True Value",
+      "Value_pred" = "Forecast"
+    )
+  )
+output_pred_comp_WS <- output_pred_comp_filtered %>%
+  filter(Variable %in% c("l_WS_EA", "FS_WS_EA")) %>%
+  mutate(Model = case_when(
     str_detect(Variable, "l_") ~ "LASSO",
     str_detect(Variable, "FS_") ~ "FarmSelect",
     TRUE ~ "Unknown"
@@ -211,38 +298,50 @@ ggplot(output_pred_comp_WS, aes(x = Time, y = Value, color = interaction(Model, 
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
     axis.title = element_text(size = 12),
     axis.text = element_text(size = 10),
-    panel.grid = element_blank(),
+    panel.grid.major = element_line(color = "lightgray", size = 0.5),
+    panel.grid.minor = element_blank(),
     panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
   ) +
   scale_color_manual(
     values = c(
-      "PC.Value_pred" = "blue", 
-      "RIDGE.Value_pred" = "red", 
-      "LASSO.Value_pred" = "green",
-      "FarmSelect.Value_pred" = "brown", 
+      "LASSO.Value_pred" = "forestgreen",
+      "FarmSelect.Value_pred" = "darkviolet",
       "Value" = "black"
+    ),
+    labels = c(
+      "LASSO.Value_pred" = "LASSO",
+      "FarmSelect.Value_pred" = "FarmSelect", 
+      "Value" = "True Value"
     )
   ) +
-  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+  scale_linetype_manual(
+    values = c(
+      "Value" = "solid", 
+      "Value_pred" = "dashed"
+    ),
+    labels = c(
+      "Value" = "True Value",
+      "Value_pred" = "Forecast"
+    )
+  )
 
 ## PRICES
 
-output_pred_comp_PP <- output_pred_comp %>%
-  filter(Variable %in% c("l_PPINRG_EA", "pc_PPINRG_EA", "r_PPINRG_EA", "FS_PPINRG_EA")) %>%
+output_pred_comp_PP <- output_pred_comp_filtered%>%
+  filter(Variable %in% c("l_PPINRG_EA", "FS_PPINRG_EA")) %>%
   mutate(Model = case_when(
-    str_detect(Variable, "pc_") ~ "PC",
-    str_detect(Variable, "r_") ~ "RIDGE",
     str_detect(Variable, "l_") ~ "LASSO",
     str_detect(Variable, "FS_") ~ "FarmSelect",
     TRUE ~ "Unknown"
   ))
+
 
 ggplot(output_pred_comp_PP, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
   geom_line(size = 0.6) +
   labs(
     title = "Comparison of Models for PPINRG in the Euro Area",
     x = "Year",
-    y = "GDP",
+    y = "Energy PPI",
     color = "Model",
     linetype = "Type"
   ) +
@@ -252,17 +351,82 @@ ggplot(output_pred_comp_PP, aes(x = Time, y = Value, color = interaction(Model, 
     plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
     axis.title = element_text(size = 12),
     axis.text = element_text(size = 10),
-    panel.grid = element_blank(),
+    panel.grid.major = element_line(color = "lightgray", size = 0.5),
+    panel.grid.minor = element_blank(),
     panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
   ) +
   scale_color_manual(
     values = c(
-      "PC.Value_pred" = "blue", 
-      "RIDGE.Value_pred" = "red", 
-      "LASSO.Value_pred" = "green",
-      "FarmSelect.Value_pred" = "violet", 
+      "LASSO.Value_pred" = "forestgreen",
+      "FarmSelect.Value_pred" = "darkviolet",
       "Value" = "black"
+    ),
+    labels = c(
+      "LASSO.Value_pred" = "LASSO",
+      "FarmSelect.Value_pred" = "FarmSelect", 
+      "Value" = "True Value"
     )
   ) +
-  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
+  scale_linetype_manual(
+    values = c(
+      "Value" = "solid", 
+      "Value_pred" = "dashed"
+    ),
+    labels = c(
+      "Value" = "True Value",
+      "Value_pred" = "Forecast"
+    )
+  )
+
+output_pred_comp_PP <- output_pred_comp_filtered%>%
+  filter(Variable %in% c("r_PPINRG_EA", "pc_PPINRG_EA")) %>%
+  mutate(Model = case_when(
+    str_detect(Variable, "r_") ~ "RIDGE",
+    str_detect(Variable, "pc_") ~ "PC",
+    TRUE ~ "Unknown"
+  ))
+
+
+ggplot(output_pred_comp_PP, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
+  geom_line(size = 0.6) +
+  labs(
+    title = "Comparison of Models for PPINRG in the Euro Area",
+    x = "Year",
+    y = "Energy PPI",
+    color = "Model",
+    linetype = "Type"
+  ) +
+  theme_minimal() +
+  theme(
+    legend.position = "bottom",
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    axis.title = element_text(size = 12),
+    axis.text = element_text(size = 10),
+    panel.grid.major = element_line(color = "lightgray", size = 0.5),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)
+  ) +
+  scale_color_manual(
+    values = c(
+      "PC.Value_pred" = "darkorange",
+      "RIDGE.Value_pred" = "blue", 
+      "Value" = "black"
+    ),
+    labels = c(
+      "PC.Value_pred" = "PCR",
+      "RIDGE.Value_pred" = "Ridge", 
+      "Value" = "True Value"
+    )
+  ) +
+  scale_linetype_manual(
+    values = c(
+      "Value" = "solid", 
+      "Value_pred" = "dashed"
+    ),
+    labels = c(
+      "Value" = "True Value",
+      "Value_pred" = "Forecast"
+    )
+  )
+
 

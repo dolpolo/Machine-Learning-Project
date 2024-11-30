@@ -3,6 +3,7 @@ getwd()
 path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
 setwd(path)
 
+
 # ---- LIBRARIES
 library(dplyr)
 library(tidyverse)
@@ -16,6 +17,8 @@ library(lars)
 library(RSpectra)
 library(glmnet)
 library(xtable)
+library(here)
+
 
 
 
@@ -35,18 +38,17 @@ library(xtable)
 ################################################################################
 
 # ---- LOAD DATA ----
-# load EA_data untill 2019
+# load EA_data until 2019
 EAdataQ <- read_xlsx("data/EA-MD-QD/EAdataQ_HT.xlsx") 
 EAdataQ <- EAdataQ %>%
   filter(Time <= as.Date("2019-10-01"))
 
-# ---- CALL FUNCTIOINS ----
+# ---- CALL FUNCTIONS ----
 # call the Bayesian Shrinkage functions
-# lapply(list.files("R/functions/", full.names = TRUE), source)
 source("R/functions/Bayesian_shrinkage_functions.R")
 
 # ---- SET PARAMETERS ----
-# Dependendent variables to be predicted
+# Dependent variables to be predicted
 nn <- c(1,37,97)
 
 # Parameters
@@ -59,24 +61,24 @@ Jwind <- 56  # Rolling window
 
 # ********************************* IN SAMPLE ******************************** #
 
-# Date di inizio della valutazione out-of-sample
+# Start dates of the out-of-sample evaluation
 start_y <- 2014
 start_m <- 01
 
-DATA <- as.matrix(EAdataQ[, -1])  # Matrice dei dati: tempo in righe, variabili in colonne
+DATA <- as.matrix(EAdataQ[, -1])  # Matrix of data: time in rows, variables in columns
 series <- colnames(EAdataQ)
 X <- DATA
 
 # target variables
 target_var <- colnames(X)[nn]
 
-# Dimensioni del pannello
+# Panel dimensions
 TT <- nrow(X)
 NN <- ncol(X)
 
-# Trova l'indice di inizio per l'out-of-sample
+# Find the index of the start of the out-of-sample
 start_sample <- which(year(EAdataQ$Time) == start_y & month(EAdataQ$Time) == start_m)
-if (Jwind > start_sample) stop("La finestra mobile non può essere più grande del primo campione di valutazione")
+if (Jwind > start_sample) stop("The rolling window cannot be larger than the first evaluation sample")
 
 j0 <- start_sample - Jwind + 1
 x <- X[j0:start_sample, ]
@@ -86,7 +88,7 @@ x <- X[j0:start_sample, ]
 # ============================= RIDGE PENALIZATION ============================= 
 # ==============================================================================
 
-# Impostazione del parametro di penalizzazione RIDGE (richiede funzione SET_ridge)
+# Setting the RIDGE penalty parameter (requires SET_ridge function)
 nu_ridge <- list()
 for (jfit in seq_along(INfit)) {
   for (k in seq_along(nn)) {
@@ -102,7 +104,7 @@ nu_ridge
 # ============================= LASSO PENALIZATION ============================= 
 # ==============================================================================
 
-# Impostazione del parametro di penalizzazione LASSO (richiede funzione SET_LASSO)
+# Setting the LASSO penalty parameter (requires SET_lasso function)
 nu_LASSO <- list()
 for (jK in seq_along(K)) {
   for (k in seq_along(nn)) {
@@ -113,11 +115,6 @@ for (jK in seq_along(K)) {
 }
 nu_LASSO
 
-
-# varianza non spiegata dai residui : con una varianza dei residui in sample di 0.1 significa che il modello
-# spiega quasi tutto e per ottenere quello la penalizzazione deve essere bassa (OLS).
-# con una varianza dei residui in sample di 0.9 il modello non spiega quasi nulla quindi
-# per ottenere quel livello il lambda dovrà penalizzare molto ed il modello sarà un random walk
 
 # Assigning dependent variable names
 for (k in seq_along(nn)){
@@ -142,26 +139,34 @@ T <- nrow(x)
 N <- ncol(x)
 multiply <- as.numeric(T*N)
 
-# Moltiplica ogni elemento di nu_ridge per T * N usando lapply
+# Multiply each element of nu_ridge by T * N using lapply
 NT_nu_ridge <- lapply(nu_ridge, function(x) as.numeric(x) * multiply)
 NT_nu_ridge
 
 NT_nu_ridge <- as.data.frame(NT_nu_ridge)
 NT_nu_ridge_t <- t(NT_nu_ridge)
 
+# Transpose the matrix
+NT_nu_ridge_t <- t(NT_nu_ridge)
+
+# Convert to LaTeX
+latex_output <- xtable(NT_nu_ridge_t)
+
+# Print LaTeX code
+print(latex_output, type = "latex")
+
 target_var_names <- as.character(target_var)
 
-# Combina i nomi per rinominare le colonne
+# Combine the names to rename the columns
 col_names <- c(as.character(INfit))
 
-# Applica i nuovi nomi alle colonne del dataframe
+# Apply new names to columns of dataframe
 colnames(NT_nu_ridge_t) <- col_names
 rownames(NT_nu_ridge_t) <- target_var_names 
 
-# Converte la matrice in codice LaTeX
+# LaTeX
 LTX_NT_nu_ridge_t <- xtable(NT_nu_ridge_t)
 
-# Stampa il codice LaTeX
 print(LTX_NT_nu_ridge_t, type = "latex")
 
 
@@ -201,30 +206,29 @@ RIDGE <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 true_r <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 RW_r <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 
-# Esegui l'esercizio di previsione fuori campione LASSO
+# Perform the out-of-sample forecasting exercise using LASSO
 for (j in start_sample:(TT - HH)) {
   
-  # Definisci il campione di stima
+  # Define sample 
   j0 <- j - Jwind + 1 # from where the rolling windows starts
   
-  # Dati disponibili ad ogni punto di valutazione
-  x <- X[j0:j, ]  # I dati disponibili ad ogni punto di tempo
+  # Data available for every point in time 
+  x <- X[j0:j, ]  
   
   for (k in seq_along(nn)) {
     
     for (jfit in seq_along(INfit)) {
       
-      # Costanti di normalizzazione (capire l'if-else da loro)
+      # Normalization constants 
       const <- 4
       
-      # Calcolo delle previsioni LASSO
-      for (h in HH) {  # Ciclo su numero di passi avanti
+      # Compute LASSO forecasts 
+      for (h in HH) {  # Loop on steps ahead 
         pred_br[[j]][[k]][[jfit]]<- RIDGE_pred(x[, nn[k]], x, p, nu_ridge[[k]][[jfit]], h)
         RIDGE[[j+h]][[k]][[jfit]] <- pred_br[[j]][[k]][[jfit]][["pred"]] * const
-        #variance da inserire
         
         
-        # Calcola il valore vero da prevedere
+        # Compute true value to be forecasted
         temp <- mean(X[(j + 1):(j + h), nn[k]])
         true_r[[j+h]][[k]][[jfit]] <- temp * const
         
@@ -240,48 +244,7 @@ for (j in start_sample:(TT - HH)) {
 
 
 ################################################################################
-# Inizializza i contenitori per le previsioni
-# pred_br <- vector("list", length = TT)
-# RIDGE <- vector("list", length = TT)
-# true_r <- vector("list", length = TT)
-# RW_r <- vector("list", length = TT)
 
-
-# Esegui l'esercizio di previsione fuori campione
-# for (j in start_sample:(TT - HH)) {
-  
-  # Definisci il campione di stima
-#  j0 <- j - Jwind + 1 # from where the rolling windows starts
-  
-  # Dati disponibili ad ogni punto di valutazione
-#  x <- X[j0:j, ]  # I dati disponibili ad ogni punto di tempo
-  
-#  for (jfit in seq_along(INfit)) {
-    
-#    for (h in HH) {  # Ciclo su numero di passi avanti
-      
-      # Costanti di normalizzazione (capire l'if-else da loro)
-#      const <- 4
-      
-      # Calcolo delle previsioni ridge
-#      for (k in seq_along(nn)) {
-#        pred_br[[j]][[jfit]]<- RIDGE_pred(x[, nn[k]], x, p, nu_ridge[[k]][[jfit]], h)
-#        RIDGE[[j+h]][[jfit]] <- pred_br[[j]][[jfit]][["pred"]] * const
-        #variance da inserire
-        
-        # Calcola il valore vero da prevedere
-#        temp <- mean(X[(j + 1):(j + h), nn[k]])
-#        true_r[[j+h]][[jfit]] <- temp * const
-        
-        # Constant Growth rate
-#        temp <- RW_pred(x[, nn[k]], h)
-#        RW_r[[j+h]][[jfit]] <- temp * const
-        
-        #
-#      }
-#    }
-#  }
-#}
         
 # ==============================================================================
 # =============================== LASSO PREDICTION ============================= 
@@ -299,30 +262,27 @@ true_l <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 RW_l <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 
 
-# Esegui l'esercizio di previsione fuori campione LASSO
+# Perform the out-of-sample forecasting exercise using LASSO
 for (j in start_sample:(TT - HH)) {
   
-  # Definisci il campione di stima
+  # Define sample 
   j0 <- j - Jwind + 1 # from where the rolling windows starts
   
-  # Dati disponibili ad ogni punto di valutazione
-  x <- X[j0:j, ]  # I dati disponibili ad ogni punto di tempo
+
+  x <- X[j0:j, ]  # Data available at every point in time 
   
   for (k in seq_along(nn)) {
     
     for (jK in seq_along(K)) {
       
-      # Costanti di normalizzazione (capire l'if-else da loro)
       const <- 4
       
-      # Calcolo delle previsioni LASSO
-      for (h in HH) {  # Ciclo su numero di passi avanti
+      # LASSO forecasts
+      for (h in HH) {  
         pred_bl[[j]][[k]][[jK]]<- LASSO_pred(x[, nn[k]], x, p, nu_LASSO[[k]][[jK]], h)
         LASSO[[j+h]][[k]][[jK]] <- pred_bl[[j]][[k]][[jK]][["pred"]] * const
-        #variance da inserire
         
-        
-        # Calcola il valore vero da prevedere
+        # Compute true value to be forecasted 
         temp <- mean(X[(j + 1):(j + h), nn[k]])
         true_l[[j+h]][[k]][[jK]] <- temp * const
         
@@ -355,30 +315,30 @@ true_pc <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 RW_pc <- initialize_nested_list(outer_length, c(mid_length, inner_length))
 
 
-# Esegui l'esercizio di previsione fuori campione LASSO
+# Perform the out-of-sample forecasting exercise using PCR
 for (j in start_sample:(TT - HH)) {
   
-  # Definisci il campione di stima
+  # Define sample
   j0 <- j - Jwind + 1 # from where the rolling windows starts
   
-  # Dati disponibili ad ogni punto di valutazione
-  x <- X[j0:j, ]  # I dati disponibili ad ogni punto di tempo
+  
+  x <- X[j0:j, ] 
   
   for (k in seq_along(nn)) {
     
     for (jr in seq_along(rr)) {
       
-      # Costanti di normalizzazione (capire l'if-else da loro)
+     
       const <- 4
       
-      # Calcolo delle previsioni PC
-      for (h in HH) {  # Ciclo su numero di passi avanti
+      # Compute PC forecasts
+      for (h in HH) {  
         pred_bpc[[j]][[k]][[jr]]<- PC_pred(x[, nn[k]], x, p, rr[jr], h)
         PC[[j+h]][[k]][[jr]] <- pred_bpc[[j]][[k]][[jr]][["pred"]] * const
-        #variance da inserire
         
         
-        # Calcola il valore vero da prevedere
+        
+        # Compute true value to be forecasted 
         temp <- mean(X[(j + 1):(j + h), nn[k]])
         true_pc[[j+h]][[k]][[jr]] <- temp * const
         
@@ -392,46 +352,6 @@ for (j in start_sample:(TT - HH)) {
 }
 
 ################################################################################
-# Inizializza i contenitori per le previsioni
-# pred_bpc <- vector("list", length = TT)
-# PC <- vector("list", length = TT)
-# true_pc <- vector("list", length = TT)
-# RW_pc <- vector("list", length = TT)
-
-
-# Esegui l'esercizio di previsione fuori campione
-# for (j in start_sample:(TT - HH)) {
-  
-  # Definisci il campione di stima
-#  j0 <- j - Jwind + 1 # from where the rolling windows starts
-  
-  # Dati disponibili ad ogni punto di valutazione
-#  x <- X[j0:j, ]  # I dati disponibili ad ogni punto di tempo
-  
-  
-#  for (h in HH) {  # Ciclo su numero di passi avanti
-    
-    # Costanti di normalizzazione (capire l'if-else da loro)
-#    const <- 4
-    
-    # calcolo delle previsioni della PCR
-#    for (jr in seq_along(rr)) {
-#      for (k in seq_along(nn)) {
-#        pred_bpc[[j]][[jr]]<- PC_pred(x[, nn[k]], x, p, rr[jr], h)
-#        PC[[j+h]][[jr]] <- pred_bpc[[j]][[jr]][["pred"]] * const
-        
-        # Calcola il valore vero da prevedere
-#        temp <- mean(X[(j + 1):(j + h), nn[k]])
-#        true_pc[[j+h]][[jr]] <- temp * const
-        
-        # Constant Growth rate
-#        temp <- RW_pred(x[, nn[k]], h)
-#        RW_pc[[j+h]][[jr]] <- temp * const
-        
-#      }
-#    }
-#  }  
-#}
 
 
 # ============================== MODEL COMPARISON ==============================
@@ -510,7 +430,7 @@ print(MSFE_RIDGE_ratio)
 
 # ---- Visualization
 
-# Convertire il dataframe in formato long, includendo un identificatore per le righe
+# Convert the dataframe to long format, including an identifier for the rows
 MSFE_RIDGE_matrix_long <- MSFE_RIDGE_matrix %>%
   rownames_to_column(var = "Variable") %>%
   pivot_longer(cols = -Variable, names_to = "Penalization", values_to = "Value")
@@ -520,7 +440,7 @@ ggplot(MSFE_RIDGE_matrix_long, aes(x = Penalization, y = Value, color = Variable
   geom_point(size = 2) +
   labs(
     title = "MSFE RIDGE",
-    x = "In-sample variances",
+    x = "In-sample residual variances",
     y = "MSFE"
   ) +
   facet_wrap(~ Variable, scales = "free_y") + 
@@ -535,43 +455,6 @@ ggplot(MSFE_RIDGE_matrix_long, aes(x = Penalization, y = Value, color = Variable
   )
 
 
-
-# Ridge Output Matrix
-# RIDGE_output <- do.call(rbind, lapply(RIDGE[ind_first:length(RIDGE)], unlist))
-
-# Rename rows and columns
-# rownames(RIDGE_output) <- ind_first:ind_last
-# colnames(RIDGE_output) <- paste0(INfit)
-
-# True Output Matrix
-# true_output <- do.call(rbind, lapply(true_r[ind_first:length(true_r)], unlist))
-
-# Rename rows and columns
-# rownames(true_output) <- ind_first:ind_last
-# colnames(true_output) <- paste0(INfit)
-
-# MSFE ridge
-# MSFE_RIDGE <- matrix(colMeans((RIDGE_output - true_output)^2),nrow = 1, byrow = FALSE)
-
-# Rename matrix
-# colnames(MSFE_RIDGE) <- paste(INfit)
-# rownames(MSFE_RIDGE)<- paste(nn)
-
-# Convertire la matrice in un dataframe
-# df_MSFE_RIDGE <- as.data.frame(MSFE_RIDGE)
-
-# Convertire il dataframe in formato long
-# df_MSFE_RIDGE_long <- df_MSFE_RIDGE %>%
-# pivot_longer(cols = everything(), names_to = "Column", values_to = "Value")
-
-# Plot MSFE against In-sample residual variance
-# ggplot(df_MSFE_RIDGE_long, aes(x = Column, y = Value, group = 1)) +
-#  geom_line() +  # Linea per i valori
-#  geom_point() +  # Aggiungi punti per i valori
-#  labs(title = "MSFE Ridge",
-#       x = "In-sample residual variance",
-#       y = "MSFE") +
-#  theme_minimal()
 
 
 # ************************ LASSO MSFE AND VISUALIZATION ************************
@@ -628,7 +511,7 @@ print(MSFE_l_ratio)
 
 # ---- Visualization
 
-# Convertire il dataframe in formato long, includendo un identificatore per le righe
+# Convert the dataframe to long format, including an identifier for the rows
 MSFE_l_matrix_long <- MSFE_l_matrix %>%
   rownames_to_column(var = "Variable") %>%
   pivot_longer(cols = -Variable, names_to = "Penalization", values_to = "Value")
@@ -716,7 +599,7 @@ saveRDS(MSFE_PC_ratio, file= "Results/MSFE/MSFE_PC_ratio.rds")
 
 # ---- Visualization
 
-# Convertire il dataframe in formato long, includendo un identificatore per le righe
+# Convert the dataframe to long format, including an identifier for the rows
 MSFE_PC_matrix_long <- MSFE_PC_matrix %>%
   rownames_to_column(var = "Variable") %>%
   pivot_longer(cols = -Variable, names_to = "Penalization", values_to = "Value")
@@ -744,96 +627,6 @@ ggplot(MSFE_PC_matrix_long, aes(x = Penalization, y = Value, color = Variable, g
   )
 
 
-# Ridge Output Matrix
-# PC_output <- do.call(rbind, lapply(PC[ind_first:length(PC)], unlist))
-
-# Rename rows and columns
-# rownames(PC_output) <- ind_first:ind_last
-# colnames(PC_output) <- paste0(K)
-
-# True Output Matrix
-# true_pc_output <- do.call(rbind, lapply(true_pc[ind_first:length(true_pc)], unlist))
-
-# Rename rows and columns
-# rownames(true_pc_output) <- ind_first:ind_last
-# colnames(true_pc_output) <- paste0(K)
-
-# MSFE ridge
-# MSFE_PC <- matrix(colMeans((PC_output - true_pc_output)^2),nrow = 1, byrow = FALSE)
-
-# Rename matrix
-# colnames(MSFE_PC) <- paste(K)
-# rownames(MSFE_PC)<- paste(nn)
-
-# Convertire la matrice in un dataframe
-# df_MSFE_PC <- as.data.frame(MSFE_PC)
-# df_MSFE_PC
-
-# Convertire la matrice in un dataframe
-# df_MSFE_PC <- as.data.frame(MSFE_PC)
-
-# Convertire il dataframe in formato long
-# df_MSFE_PC_long <- df_MSFE_PC %>%
-#  pivot_longer(cols = everything(), names_to = "Column", values_to = "Value")
-
-# df_MSFE_PC_long$Column <- as.numeric(as.character(df_MSFE_PC_long$Column))
-# df_MSFE_PC_long$Column <- factor(df_MSFE_PC_long$Column, levels = c(1, 3, 5, 10, 25, 50, 65))
-
-# Plot MSFE against In-sample residual variance
-# ggplot(df_MSFE_PC_long, aes(x = Column, y = Value, group = 1)) +
-#   geom_line() +  # Linea per i valori
-#   geom_point() +  # Aggiungi punti per i valori
-#   labs(title = "MSFE PC",
-#        x = "number of predictors with non zero coefficient",
-#        y = "MSFE") +
-#   theme_minimal()
-
-
-# ==============================================================================
-# ============================== MODEL COMPARISON ==============================
-# ==============================================================================
-
-
-
-# *************************** RIDGE MlE vs. RW MSFE ***************************
-
-# Ridge Output Matrix
-# RW_r_output <- do.call(rbind, lapply(RW_r[ind_first:length(RIDGE)], unlist))
-
-# Rename rows and columns
-# rownames(RW_r_output) <- ind_first:ind_last
-# colnames(RW_r_output) <- paste0(INfit)
-
-# MSFE RW
-# MSFE_r_RW <- matrix(colMeans((RW_r_output - true_output)^2),nrow = 1, byrow = FALSE)
-
-# Rename matrix
-# colnames(MSFE_r_RW) <- paste(INfit)
-# rownames(MSFE_r_RW)<- paste(nn)
-
-# MSFE RIDGE/RW
-# MSFE_RIDGE_ratio <- MSFE_RIDGE / MSFE_r_RW
-
-# *************************** LASSO MlE vs. RW MSFE ***************************
-# Ridge Output Matrix
-# RW_l_output <- do.call(rbind, lapply(RW_l[ind_first:length(LASSO)], unlist))
-
-# Rename rows and columns
-# rownames(RW_l_output) <- ind_first:ind_last
-# colnames(RW_l_output) <- paste0(K)
-
-# MSFE RW
-# MSFE_l_RW <- matrix(colMeans((RW_l_output - true_l_output)^2),nrow = 1, byrow = FALSE)
-
-# Rename matrix
-# colnames(MSFE_l_RW) <- paste(K)
-# rownames(MSFE_l_RW)<- paste(nn)
-# MSFE_LASSO_ratio <- MSFE_LASSO / MSFE_l_RW
-
-
-# ***************************** PCR MlE vs. RW MSFE ***************************
-
-# MSFE_PC_ratio <- MSFE_PC / MSFE_l_RW
 
 
 # ==============================================================================
@@ -843,84 +636,84 @@ ggplot(MSFE_PC_matrix_long, aes(x = Penalization, y = Value, color = Variable, g
 
 # ---- RIDGE ----
 
-# Inizializza una lista vuota per salvare i risultati
+# Initialize an empty list to save the results
 best_r_model <- data.frame(Variable = rownames(MSFE_RIDGE_matrix),
                            Best_MSFE = numeric(nrow(MSFE_RIDGE_matrix)),
                            Best_Penalization = character(nrow(MSFE_RIDGE_matrix)),
                            nu_RIDGE_r = numeric(nrow(MSFE_RIDGE_matrix)),
                            stringsAsFactors = FALSE)
 
-# Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
+# Create a mapping between the names of the penalties and the numerical indices
 penalization_map <- c( "0.1" = 1, "0.2" = 2, "0.3" = 3, "0.4" = 4, 
                        "0.5" = 5, "0.6" = 6, "0.7" = 7, "0.8" = 8, "0.9" = 9 )
 
-# Loop per ogni riga della matrice MSFE
+# Loop for every row of matrix MSFE
 for (i in 1:nrow(MSFE_RIDGE_matrix)) {
   
-  # Trova l'indice della colonna con il valore minimo nella riga i
+  # Find the index of the column with the minimum value in row i
   min_index <- which.min(MSFE_RIDGE_matrix[i, ])
   
-  # Assegna il valore minimo e il nome della colonna nella lista dei risultati
+  #Assign the minimum value and the column name to the results list
   best_r_model$Best_MSFE[i] <- MSFE_RIDGE_matrix[i, min_index]
   best_r_model$Best_Penalization[i] <- colnames(MSFE_RIDGE_matrix)[min_index]
   
-  # Ottieni il nome della penalizzazione migliore per questa variabile
+  #  Get the name of the best penalty for this variable
   best_penalization <- best_r_model$Best_Penalization[i]
   
-  # Controlla se la penalizzazione è presente nel mapping
+  # Check if the penalty is present in the mapping
   if (best_penalization %in% names(penalization_map)) {
     
-    # Ottieni l'indice corrispondente alla penalizzazione
+    # Get the index corresponding to the penalty
     penalization_index <- penalization_map[best_penalization]
     
-    # Seleziona la predizione corrispondente dal nu_LASSO
+    # Select the corresponding prediction from nu_ridge
     best_r_model$nu_RIDGE_r[i] <- nu_ridge[[i]][[penalization_index]]
     
   } else {
-    # Gestisci il caso in cui la penalizzazione non viene trovata
+    # Handle the case where the penalty is not found
     print(paste("Penalization", best_penalization, "not found for variable", rownames(MSFE_RIDGE_matrix)[i]))
-    best_r_model$nu_RIDGE_r[i] <- NA  # Assegna NA se la penalizzazione non è trovata
+    best_r_model$nu_RIDGE_r[i] <- NA  # Assign NA if penalty not found
   }
 }
 
-# Visualizza i risultati
+# Visualize results
 print(best_r_model)
 
-# Inizializza una matrice vuota per le migliori predizioni per ogni anno
+# Initialize an empty matrix for the best predictions for each year.
 best_r_prediction <- matrix(NA, nrow = length(seq(from = ind_first, to = length(RIDGE))), ncol = nrow(MSFE_RIDGE_matrix))
-rownames(best_r_prediction) <- seq(from = ind_first, to = length(RIDGE))  # Assegna gli anni come nomi delle righe
-colnames(best_r_prediction) <- rownames(MSFE_RIDGE_matrix)  # Assegna le variabili come nomi delle colonne
+rownames(best_r_prediction) <- seq(from = ind_first, to = length(RIDGE))  
+colnames(best_r_prediction) <- rownames(MSFE_RIDGE_matrix) 
 
-# Loop per ogni variabile (riga di MSFE_RIDGE_matrix)
+# Loop for every variable (row of MSFE_RIDGE_matrix)
 for (i in 1:nrow(MSFE_RIDGE_matrix)) {
   
-  # Trova l'indice della colonna con il valore minimo nella riga i (la penalizzazione ottimale)
+  #Find the index of the column with the minimum value in row i (the optimal penalty)
   min_index <- which.min(MSFE_RIDGE_matrix[i, ])
   
-  # Ottieni il nome della penalizzazione migliore per questa variabile
+  # Get the name of the best penalty for this variable
   best_penalization <- colnames(MSFE_RIDGE_matrix)[min_index]
   
-  # Ottieni l'indice della penalizzazione corrispondente
+  # Get the index of the corresponding penalty
   penalization_index <- penalization_map[best_penalization]
   
-  # Per ogni anno (da ind_first a RIDGE), seleziona la predizione corrispondente alla penalizzazione ottimale
-  for (j in ind_first:length(RIDGE)) {  # Itera sugli anni
-    # Estrai la lista di predizioni per la variabile i e l'anno j da RIDGE
+  # For each year (from ind_first to RIDGE), select the prediction corresponding to the optimal penalty
+  for (j in ind_first:length(RIDGE)) {  
+    # Extract the list of predictions for variable i and year j from RIDGE
     pred_blist_for_year_var <- RIDGE[[j]][[i]]
     
-    # Controlla se penalization_index è dentro i limiti della lista di predizioni
+    # Check if penalization_index is within the bounds of the predictions list
     if (penalization_index <= length(pred_blist_for_year_var)) {
-      # Salva la predizione corrispondente al miglior parametro di penalizzazione
+      # Save the prediction corresponding to the best penalty parameter
       best_r_prediction[j - ind_first + 1, i] <- pred_blist_for_year_var[[penalization_index]]
     } else {
-      # Se l'indice è fuori limite, assegna NA
+      # If the index is out of bounds, assign NA
       best_r_prediction[j - ind_first + 1, i] <- NA
-      print(paste("Attenzione: Penalization", best_penalization, "è fuori limite per la variabile", rownames(MSFE_l_matrix)[i], "e l'anno", j))
+      print(paste("Warning: Penalization", best_penalization, "is out of bounds for the variable", rownames(MSFE_l_matrix)[i], "and year", j))
     }
   }
 }
 
-# Visualizza la matrice delle migliori predizioni per gli anni selezionati
+# Display the matrix of the best predictions for the selected years
 print(best_r_prediction)
 
 best_r_prediction <- as.data.frame(best_r_prediction)
@@ -937,85 +730,85 @@ saveRDS(best_r_prediction, file = "Results/Best Models/best_r_prediction.rds")
 
 # ---- LASSO ----
 
-# Inizializza una lista vuota per salvare i risultati
+# Initialize an empty list to save the results
 best_l_model <- data.frame(Variable = rownames(MSFE_l_matrix),
                             Best_MSFE = numeric(nrow(MSFE_l_matrix)),
                             Best_Penalization = character(nrow(MSFE_l_matrix)),
                             nu_LASSO_l = numeric(nrow(MSFE_l_matrix)),
                             stringsAsFactors = FALSE)
 
-# Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
+# Create a mapping between the names of the penalties and the numerical indices
 penalization_map <- c("1" = 1, "3" = 2, "5" = 3, "10" = 4, 
                       "25" = 5, "40" = 6, "50" = 7)
 
-# Loop per ogni riga della matrice MSFE
+# Loop for every row of matrix MSFE
 for (i in 1:nrow(MSFE_l_matrix)) {
   
-  # Trova l'indice della colonna con il valore minimo nella riga i
+  # Find the index of the column with the minimum value in row i
   min_index <- which.min(MSFE_l_matrix[i, ])
   
-  # Assegna il valore minimo e il nome della colonna nella lista dei risultati
+  # Assign the minimum value and the column name to the results list
   best_l_model$Best_MSFE[i] <- MSFE_l_matrix[i, min_index]
   best_l_model$Best_Penalization[i] <- colnames(MSFE_l_matrix)[min_index]
   
-  # Ottieni il nome della penalizzazione migliore per questa variabile
+  #  Get the name of the best penalty for this variable
   best_penalization <- best_l_model$Best_Penalization[i]
   
-  # Controlla se la penalizzazione è presente nel mapping
+  # Check if the penalty is present in the mapping
   if (best_penalization %in% names(penalization_map)) {
     
-    # Ottieni l'indice corrispondente alla penalizzazione
+    # Get the index corresponding to the penalty
     penalization_index <- penalization_map[best_penalization]
     
-    # Seleziona la predizione corrispondente dal nu_LASSO
+    # Select the corresponding prediction from nu_LASSO
     best_l_model$nu_LASSO_l[i] <- nu_LASSO[[i]][[penalization_index]]
     
   } else {
-    # Gestisci il caso in cui la penalizzazione non viene trovata
+    # Handle the case where the penalty is not found
     print(paste("Penalization", best_penalization, "not found for variable", rownames(MSFE_l_matrix)[i]))
-    best_l_model$nu_LASSO_l[i] <- NA  # Assegna NA se la penalizzazione non è trovata
+    best_l_model$nu_LASSO_l[i] <- NA  # # Assign NA if penalty not found
   }
 }
 
-# Visualizza i risultati
+#Visualize results
 print(best_l_model)
 
-# Inizializza una matrice vuota per le migliori predizioni per ogni anno
+# Initialize an empty matrix for the best predictions for each year.
 best_l_prediction <- matrix(NA, nrow = length(seq(from = ind_first, to = length(LASSO))), ncol = nrow(MSFE_l_matrix))
-rownames(best_l_prediction) <- seq(from = ind_first, to = length(LASSO))  # Assegna gli anni come nomi delle righe
-colnames(best_l_prediction) <- rownames(MSFE_l_matrix)  # Assegna le variabili come nomi delle colonne
+rownames(best_l_prediction) <- seq(from = ind_first, to = length(LASSO))  
+colnames(best_l_prediction) <- rownames(MSFE_l_matrix)  
 
 
-# Loop per ogni variabile (riga di MSFE_l_matrix)
+# Loop for every variable (row of MSFE_l_matrix)
 for (i in 1:nrow(MSFE_l_matrix)) {
   
-  # Trova l'indice della colonna con il valore minimo nella riga i (la penalizzazione ottimale)
+  # Find the index of the column with the minimum value in row i (the optimal penalty)
   min_index <- which.min(MSFE_l_matrix[i, ])
   
-  # Ottieni il nome della penalizzazione migliore per questa variabile
+  # Get the name of the best penalty for this variable
   best_penalization <- colnames(MSFE_l_matrix)[min_index]
   
-  # Ottieni l'indice della penalizzazione corrispondente
+  # Get the index of the corresponding penalty
   penalization_index <- penalization_map[best_penalization]
   
-  # Per ogni anno (da ind_first a LASSO), seleziona la predizione corrispondente alla penalizzazione ottimale
+  # For each year (from ind_first to LASSO), select the prediction corresponding to the optimal penalty
   for (j in ind_first:length(LASSO)) {  # Itera sugli anni
-    # Estrai la lista di predizioni per la variabile i e l'anno j da LASSO
+    # Extract the list of predictions for variable i and year j from LASSO
     pred_blist_for_year_var <- LASSO[[j]][[i]]
     
-    # Controlla se penalization_index è dentro i limiti della lista di predizioni
+    # Check if penalization_index is within the bounds of the predictions list
     if (penalization_index <= length(pred_blist_for_year_var)) {
-      # Salva la predizione corrispondente al miglior parametro di penalizzazione
+      # Save the prediction corresponding to the best penalty parameter
       best_l_prediction[j - ind_first + 1, i] <- pred_blist_for_year_var[[penalization_index]]
     } else {
-      # Se l'indice è fuori limite, assegna NA
+      #If the index is out of bounds, assign NA
       best_l_prediction[j - ind_first + 1, i] <- NA
-      print(paste("Attenzione: Penalization", best_penalization, "è fuori limite per la variabile", rownames(MSFE_l_matrix)[i], "e l'anno", j))
+      print(paste("Warning: Penalization", best_penalization, "is out of bounds for the variable", rownames(MSFE_l_matrix)[i], "and year", j))
     }
   }
 }
 
-# Visualizza la matrice delle migliori predizioni per gli anni selezionati
+# Display the matrix of the best predictions for the selected years
 print(best_l_prediction)
 
 best_l_prediction <- as.data.frame(best_l_prediction)
@@ -1029,81 +822,81 @@ saveRDS(best_l_prediction, file = "Results/Best Models/best_l_prediction.rds")
 
 # ---- PC ---- 
 
-# Inizializza una lista vuota per salvare i risultati
+# Initialize an empty list to save the results
 best_PC_model <- data.frame(Variable = rownames(MSFE_PC_matrix),
                             Best_MSFE = numeric(nrow(MSFE_PC_matrix)),
                             Best_Parameter = character(nrow(MSFE_PC_matrix)),
                             stringsAsFactors = FALSE)
 
-# Crea una mappatura tra i nomi delle penalizzazioni e gli indici numerici
+# Create a mapping between the names of the penalties and the numerical indices
 penalization_map <- c("1" = 1, "3" = 2, "5" = 3, "10" = 4, 
                       "25" = 5, "40" = 6, "50" = 7)
 
-# Loop per ogni riga della matrice MSFE
+# Loop for every row of matrix MSFE
 for (i in 1:nrow(MSFE_PC_matrix)) {
   
-  # Trova l'indice della colonna con il valore minimo nella riga i
+  # Find the index of the column with the minimum value in row i
   min_index <- which.min(MSFE_PC_matrix[i, ])
   
-  # Assegna il valore minimo e il nome della colonna nella lista dei risultati
+  # Assign the minimum value and the column name to the results list
   best_PC_model$Best_MSFE[i] <- MSFE_PC_matrix[i, min_index]
   best_PC_model$Best_Parameter[i] <- colnames(MSFE_PC_matrix)[min_index]
   
-  # Ottieni il nome della penalizzazione migliore per questa variabile
+  # Get the name of the best penalty for this variable
   best_parameter <- best_PC_model$Best_Parameter[i]
   
-  # Controlla se la penalizzazione è presente nel mapping
+  # Check if the penalty is present in the mapping
   if (best_parameter %in% names(penalization_map)) {
     
-    # Ottieni l'indice corrispondente alla penalizzazione
+    # Get the index corresponding to the penalty
     penalization_index <- penalization_map[best_parameter]
     
   } else {
-    # Gestisci il caso in cui la penalizzazione non viene trovata
+    # Handle the case where the penalty is not found
     print(paste("Penalization", best_penalization, "not found for variable", rownames(MSFE_l_matrix)[i]))
-    best_l_model$nu_LASSO_l[i] <- NA  # Assegna NA se la penalizzazione non è trovata
+    best_l_model$nu_LASSO_l[i] <- NA  # Assign NA if penalty not found
   }
 }
 
-# Visualizza i risultati
+# Visualize results
 print(best_l_model)
 
-# Inizializza una matrice vuota per le migliori predizioni per ogni anno
+# Initialize an empty matrix for the best predictions for each year
 best_pc_prediction <- matrix(NA, nrow = length(seq(from = ind_first, to = length(PC))), ncol = nrow(MSFE_PC_matrix))
-rownames(best_pc_prediction) <- seq(from = ind_first, to = length(PC))  # Assegna gli anni come nomi delle righe
-colnames(best_pc_prediction) <- rownames(MSFE_PC_matrix)  # Assegna le variabili come nomi delle colonne
+rownames(best_pc_prediction) <- seq(from = ind_first, to = length(PC))  
+colnames(best_pc_prediction) <- rownames(MSFE_PC_matrix) 
 
 
-# Loop per ogni variabile (riga di MSFE_PC_matrix)
+# Loop for every variable (row of MSFE_PC_matrix)
 for (i in 1:nrow(MSFE_PC_matrix)) {
   
-  # Trova l'indice della colonna con il valore minimo nella riga i (la penalizzazione ottimale)
+  #Find the index of the column with the minimum value in row i (the optimal penalty)
   min_index <- which.min(MSFE_PC_matrix[i, ])
   
-  # Ottieni il nome della penalizzazione migliore per questa variabile
+  # Get the name of the best penalty for this variable
   best_penalization <- colnames(MSFE_PC_matrix)[min_index]
   
-  # Ottieni l'indice della penalizzazione corrispondente
+  # Get the index of the corresponding penalty
   penalization_index <- penalization_map[best_penalization]
   
-  # Per ogni anno (da ind_first a PC), seleziona la predizione corrispondente alla penalizzazione ottimale
+  # For each year (from ind_first to PC), select the prediction corresponding to the optimal penalty
   for (j in ind_first:length(PC)) {  # Itera sugli anni
-    # Estrai la lista di predizioni per la variabile i e l'anno j da PC
+    # Extract the list of predictions for variable i and year j from PC
     pred_blist_for_year_var <- PC[[j]][[i]]
     
-    # Controlla se penalization_index è dentro i limiti della lista di predizioni
+    # Check if penalization_index is within the bounds of the predictions list
     if (penalization_index <= length(pred_blist_for_year_var)) {
-      # Salva la predizione corrispondente al miglior parametro di penalizzazione
+      # Save the prediction corresponding to the best penalty parameter
       best_pc_prediction[j - ind_first + 1, i] <- pred_blist_for_year_var[[penalization_index]]
     } else {
-      # Se l'indice è fuori limite, assegna NA
+      # If the index is out of bounds, assign NA
       best_pc_prediction[j - ind_first + 1, i] <- NA
-      print(paste("Attenzione: Penalization", best_penalization, "è fuori limite per la variabile", rownames(MSFE_l_matrix)[i], "e l'anno", j))
+      print(paste("Warning: Penalization", best_penalization, "is out of bounds for the variable", rownames(MSFE_l_matrix)[i], "and year", j))
     }
   }
 }
 
-# Visualizza la matrice delle migliori predizioni per gli anni selezionati
+# Display the matrix of the best predictions for the selected years
 print(best_pc_prediction)
 
 best_pc_prediction <- as.data.frame(best_pc_prediction)
@@ -1116,189 +909,126 @@ saveRDS(best_pc_prediction, file = "Results/Best Models/best_pc_prediction.rds")
 
 
 # ==============================================================================
-# ================= VARIABLE FREQUENCY LASSO MODEL SELECTIN  ===================
+# ================= VARIABLE FREQUENCY LASSO MODEL SELECTION  ===================
 # ==============================================================================
 
-# Inizializza una matrice vuota per le migliori predizioni per ogni anno
+# Initialize an empty matrix for the best predictions for each year
 variable_selection <- matrix(NA, nrow = length(seq(from = start_sample, to = length(LASSO) - HH)), ncol = nrow(MSFE_l_matrix))
-rownames(variable_selection) <- seq(from = start_sample, to = length(LASSO) - HH)  # Assegna gli anni come nomi delle righe
-colnames(variable_selection) <- rownames(MSFE_l_matrix)  # Assegna le variabili come nomi delle colonne
+rownames(variable_selection) <- seq(from = start_sample, to = length(LASSO) - HH) 
+colnames(variable_selection) <- rownames(MSFE_l_matrix) 
 
-# Loop per ogni variabile (riga di MSFE_l_matrix)
+# Loop for every variable (row of MSFE_l_matrix)
 for (i in 1:nrow(MSFE_l_matrix)) {
   
-  # Trova l'indice della colonna con il valore minimo nella riga i (la penalizzazione ottimale)
+  # Find the index of the column with the minimum value in row i (the optimal penalty)
   min_index <- which.min(MSFE_l_matrix[i, ])
   
-  # Ottieni il nome della penalizzazione migliore per questa variabile
+  # Get the name of the best penalty for this variable
   best_penalization <- colnames(MSFE_l_matrix)[min_index]
   
-  # Ottieni l'indice della penalizzazione corrispondente
+  # Get the index of the corresponding penalty
   penalization_index <- penalization_map[best_penalization]
   
-  # Per ogni anno (da start_sample a LASSO), seleziona la predizione corrispondente alla penalizzazione ottimale
-  for (j in start_sample:(length(LASSO) - HH)) {  # Itera sugli anni
-    # Estrai la lista di predizioni per la variabile i e l'anno j da LASSO
+  # For each year (from start_sample to LASSO), select the prediction corresponding to the optimal penalty
+  for (j in start_sample:(length(LASSO) - HH)) {  
+    # Extract the list of predictions for variable i and year j from LASSO
     pred_blist_for_year_var <- pred_bl[[j]][[i]]
     
-    # Verifica che la lista di predizioni per l'anno e la variabile sia valida
+    # Check that the list of predictions for the year and variable is valid
     if (is.list(pred_blist_for_year_var) && length(pred_blist_for_year_var) >= penalization_index) {
-      # Seleziona il modello corrispondente alla penalizzazione ottimale
+      # Select the model corresponding to the optimal penalty
       selected_model <- pred_blist_for_year_var[[penalization_index]]
       
-      # Controlla se 'model_selection' è una lista (potrebbe contenere più modelli)
+      # Check if 'model_selection' is a list (it may contain multiple models)
       if ("model_selection" %in% names(selected_model)) {
         model_selection_values <- selected_model[["model_selection"]]
         
-        # Se 'model_selection' è una lista o vettore, puoi decidere come selezionare i valori
+        # If 'model_selection' is a list or vector, you can decide how to select the values.
         if (length(model_selection_values) > 1) {
-          # Ad esempio, prendi tutti i valori di 'model_selection' e assegnali
-          # Potresti anche voler fare un'aggregazione, come la media, se vuoi un singolo valore
+          # For example, take all the values from 'model_selection' and assign them 
+          # You might also want to perform an aggregation, like the mean, if you want a single value
           variable_selection[j - start_sample + 1, i] <- paste(model_selection_values, collapse = ", ")
         } else {
-          # Se c'è solo un valore, assegna quel valore
+          # If there is only one value, assign that value
           variable_selection[j - start_sample + 1, i] <- model_selection_values
         }
       } else {
-        # Se 'model_selection' non è presente nel modello, assegna NA
+        # If 'model_selection' is not present in the model, assign NA
         variable_selection[j - start_sample + 1, i] <- NA
-        print(paste("Attenzione: 'model_selection' non trovato per la variabile", rownames(MSFE_l_matrix)[i], "e l'anno", j))
+        print(paste("Warning: 'model_selection' not found for the variable", rownames(MSFE_l_matrix)[i], "and year", j))
       }
     } else {
-      # Se l'indice è fuori limite o la lista non è valida, assegna NA
+      # If the index is out of bounds or the list is not valid, assign NA
       variable_selection[j - start_sample + 1, i] <- NA
-      print(paste("Attenzione: Penalization", best_penalization, "è fuori limite per la variabile", rownames(MSFE_l_matrix)[i], "e l'anno", j))
+      print(paste("Warning: Penalization", best_penalization, "is out of bounds for the variable", rownames(MSFE_l_matrix)[i], "and year", j))
     }
   }
 }
 
 
-# Visualizza la matrice delle migliori predizioni per gli anni selezionati
+# Display the matrix of the best predictions for the selected years
 print(variable_selection)
 
-# the model selection is consistent. Every time we ask to select the variable according to the best penalization it extracts the same variables
-# in gdp it is not the case probabluy due to the fact it is high correlated?
-
-# Converti la matrice in formato long
+# Convert the matrix into long format
 variable_selection_long <- as.data.frame(variable_selection) %>%
   mutate(Year = rownames(variable_selection)) %>%
   gather(key = "Variable", value = "SelectedModel", -Year)
 
-# Conta la frequenza delle selezioni per ogni variabile target
+# Count the frequency of selections for each target variable
 freq_table <- variable_selection_long %>%
   group_by(Variable, SelectedModel) %>%
   summarise(Frequency = n(), .groups = 'drop')
 
-# Crea un grafico delle frequenze delle selezioni senza la legenda
-ggplot(freq_table, aes(x = Variable, y = Frequency, fill = SelectedModel)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  labs(title = "Frequency of Variable Selection for Each Target",
-       x = "Target Variable",
-       y = "Frequency") +
-  theme_minimal() +
-  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +  # Ruota le etichette dell'asse x
-  guides(fill = "none")  # Rimuove la legenda
 
-
-
-# Trasforma in data frame per manipolazione
+#Convert to a DataFrame for manipulation
 variable_selection_df <- as.data.frame(variable_selection)
 
-# Rendi i dati "long" (una riga per ogni variabile selezionata)
+# Make data "long" (one row for each selected variable)
 freq_table <- variable_selection_df %>%
   pivot_longer(cols = everything(), names_to = "Target", values_to = "SelectedVariables") %>%
-  # Dividi le variabili multiple in singole righe
+  # Split multiple variables into individual rows
   separate_rows(SelectedVariables, sep = ",") %>%
-  # Conta la frequenza per variabile selezionata
+  # count the frequency for each selected variable
   count(Target, SelectedVariables, name = "Frequency") %>%
-  # Ordina i risultati per Target e frequenza
+  # Sort the results by Target and frequency
   arrange(Target, desc(Frequency))
 
-# Visualizza la tabella risultante
-print(freq_table)
 
-# Filtra le 5 variabili più selezionate per ciascuna variabile target
-top_5_per_target <- freq_table %>%
+total_predictions <- ind_last - ind_first + 1
+perc_freq_table <- freq_table %>%
+  mutate(Percentage = Frequency / total_predictions * 100)
+
+perc_freq_table[, 2] <- sapply(perc_freq_table[, 2], trimws, USE.NAMES = FALSE)
+
+# Visualize table
+print(perc_freq_table)
+
+# Filter 5 most selected variables for every target 
+top_5_per_target <- perc_freq_table %>%
   group_by(Target) %>%
-  slice_max(Frequency, n = 5) %>%  # Prendi le 5 con frequenza più alta
+  slice_max(Frequency, n = 5) %>%  
   ungroup()
 
-# Trasforma in lista di matrici (una per ogni variabile target)
+top_5_per_target[, 2] <- sapply(top_5_per_target[, 2], trimws, USE.NAMES = FALSE)
+
+# Transform into a list of matrices (one for each target variable)
 top_5_matrices <- top_5_per_target %>%
   group_split(Target) %>%
   setNames(unique(top_5_per_target$Target)) %>%
   lapply(function(df) {
-    matrix(data = c(df$SelectedVariables, df$Frequency),
-           ncol = 2,
-           dimnames = list(NULL, c("Variable", "Frequency")))
+    matrix(data = c(df$SelectedVariables, df$Frequency, df$Percentage),
+           ncol = 3,
+           dimnames = list(NULL, c("Variable", "Frequency", "Percentage")))
   })
 
-# Visualizza le matrici per ciascun target
-top_5_matrices$GDP 
-
-# Grafico delle frequenze per le top 5 variabili più selezionate
-top_5_plot <- top_5_per_target %>%
-  ggplot(aes(x = reorder(SelectedVariables, -Frequency), y = Frequency, fill = Target)) +
-  geom_bar(stat = "identity", position = "dodge") +
-  facet_wrap(~Target, scales = "free_x", nrow = 1) +  # Dividi per target
-  labs(
-    title = "Top 5 Variables Selected for Each Target",
-    x = "Variable",
-    y = "Frequency",
-    fill = "Target"
-  ) +
-  theme_minimal() +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)
-  )
-
-# Visualizza il grafico
-print(top_5_plot)
-# ==============================================================================
-# ========================== PREDICTION VISUALIZATION ========================== 
-# ==============================================================================
-
-# time serires of gdp
-
-# EAdataQ_long <- EAdataQ %>%
-#  select(Time, GDP_EA)
-# ggplot(EAdataQ_long, aes(x = Time, y = GDP_EA)) +
-#  geom_line() + 
-#  geom_vline(xintercept = as.Date("2017-01-01"), color = "red", linetype = "dashed", linewidth = 1) +
-#labs(title = "Time series of GDP in Euro Area",
-#       x = "Year", 
-#       y = "GDP in Euro Area") +
-#  theme_minimal() 
+# Visualize matrices for every target
+top_5_matrices$GDP  # Example: matrix for GDP
+top_5_matrices$PPINRG # Example: matrix for Prices
+top_5_matrices$WS  # Example: matrix for WS
 
 
-# Ridge_opt <- RIDGE_output[,6]
-# Ridge_df <- merge(EAdataQ_long, Ridge_opt, by = "row.names")
-
-# Crea Ridge_opt_df con la colonna chiave
-# Ridge_opt_df <- data.frame(Row.names = rownames(RIDGE_output), Ridge_opt)
-
-# Assicurati che EAdataQ_long abbia una colonna chiave per fare il join
-# EAdataQ_long <- EAdataQ_long %>%
-#   mutate(Row.names = rownames(EAdataQ_long))
-
-# Ridge_opt_df <- Ridge_opt_df %>%
-#  mutate(Ridge_opt = Ridge_opt/4)
-
-# Unisci i dataset
-# Ridge_df <- left_join(EAdataQ_long, Ridge_opt_df, by = "Row.names")
-
-
-# Grafico con ggplot
-# ggplot(Ridge_df, aes(x = Time)) +
-#   geom_line(aes(y = GDP_EA), colour = "blue", linewidth = 0.5) +  # Linea completa del GDP_EA
-#  geom_line(aes(y = Ridge_opt), colour = "green", linewidth = 1, na.rm = TRUE) +  # Linea di Ridge_opt solo dove disponibile
-#  geom_vline(xintercept = as.Date("2017-01-01"), color = "red", linetype = "dashed", linewidth = 1) +
-#  labs(title = "Time series of GDP in Euro Area",
-#       x = "Year", 
-#       y = "GDP in Euro Area")
-
-################################### LASSO PREDICTION ###########################
+LTX_top_5_per_target <- xtable(top_5_per_target)
+print(LTX_top_5_per_target, type = "latex" )
 
 
 # ==============================================================================
@@ -1369,517 +1099,11 @@ ggplot(df_cumulative, aes(x = PC, y = CumulativeVariance)) +
     axis.text = element_text(size = 10)
   )
 
-# La varianza cumulata dimostra che ci sta ancora molto da spiegare dopo la prima componente. non è noice
 
-
-# fai il grafico coi l'eigengap tra la prima e la seconda componente.... chissa come se fa
-
-# Calcola l'eigengap
-# eigengap <- diff(varianze)
-
-# Crea il grafico dell'eigengap
-# plot(eigengap, type = "b", pch = 19, col = "red", 
-    #  xlab = "Componenti Principali (PC)", 
-    #  ylab = "Eigengap", 
-    #  main = "Grafico dell'Eigengap")
-
-
-# Interpretations od PC 
+# Interpretations of PC 
 
 pca_res$rotation[,c(1,2,3)]
 
 
-# ==============================================================================
-# ============================ PREDICTION VISUALIZATION ========================
-# ==============================================================================
 
-# ---- RIDGE ----
 
-# Verifica che `nn` contenga i nomi delle colonne corretti
-EAdataQ_long <- EAdataQ %>%
-  select(Time, all_of(nn+1)) %>%  # Seleziona la colonna Time e le colonne specificate in nn
-  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
-               names_to = "Variable", 
-               values_to = "Value")
-
-# Converti la variabile Time in formato Date per rimuovere l'informazione UTC
-time_subset <- as.Date(EAdataQ$Time[ind_first:length(RIDGE)])
-
-best_r_prediction_long <- best_r_prediction %>%
-  mutate(Time = time_subset)%>%  # Aggiungi la colonna Time
-  mutate(across(where(is.numeric), ~ . / HH)) %>% 
-  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
-               names_to = "Variable", 
-               values_to = "Value_pred")
-
-output_pred_r <- left_join(EAdataQ_long, best_r_prediction_long, by = c("Time", "Variable"))
-
-# Ristrutturazione dei dati per avere una colonna 'Type' che distingue tra 'Value' e 'Value_pred'
-output_pred_r_long <- output_pred_r %>%
-  pivot_longer(cols = c(Value, Value_pred), 
-               names_to = "Type", 
-               values_to = "Value")
-
-ggplot(output_pred_r_long, aes(x = Time, y = Value, color = Type)) +
-  geom_line(size = 1.2) +  # Aumenta lo spessore delle linee per renderle più visibili
-  facet_wrap(~ Variable, scales = "free_y", ncol = 1) +  # Un grafico per ogni variabile, con una colonna per facilitare la lettura
-  scale_color_manual(values = c("blue", "red")) +  # Personalizza i colori per 'Value' e 'Value_pred'
-  labs(title = "Time Series of Variables in the Euro Area",
-       subtitle = "Actual and RIDGE Predicted Values",
-       x = "Year", 
-       y = "Value",
-       color = "Type",
-       caption = "Source: Euro Area Data") +  # Aggiungi un sottotitolo e una didascalia
-  theme_minimal(base_size = 14) +  # Imposta una dimensione base per il tema
-  theme(
-    legend.position = "top",  # Posiziona la legenda in cima
-    panel.grid.major = element_line(color = "gray", linetype = "dashed", size = 0.5),  # Aggiungi linee della griglia maggiori in grigio
-    panel.grid.minor = element_blank(),  # Rimuovi la griglia minore
-    strip.background = element_rect(fill = "lightblue", color = "black", size = 1),  # Colore di sfondo per le etichette dei facetti
-    strip.text = element_text(size = 12, face = "bold"),  # Cambia la dimensione e il font delle etichette dei facetti
-    axis.title.x = element_text(size = 14, face = "bold"),  # Titolo x
-    axis.title.y = element_text(size = 14, face = "bold"),  # Titolo y
-    axis.text.x = element_text(angle = 45, hjust = 1),  # Ruota le etichette dell'asse x per migliorarne la leggibilità
-    axis.text.y = element_text(size = 12)  # Cambia la dimensione delle etichette dell'asse y
-  ) 
-
-
-
-# ---- LASSO ----
-
-# Verifica che `nn` contenga i nomi delle colonne corretti
-EAdataQ_long <- EAdataQ %>%
-  select(Time, all_of(nn+1)) %>%  # Seleziona la colonna Time e le colonne specificate in nn
-  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
-               names_to = "Variable", 
-               values_to = "Value")
-
-# Converti la variabile Time in formato Date per rimuovere l'informazione UTC
-time_subset <- as.Date(EAdataQ$Time[ind_first:length(LASSO)])
-
-best_l_prediction_long <- best_l_prediction %>%
-  mutate(Time = time_subset)%>%  # Aggiungi la colonna Time
-  mutate(across(where(is.numeric), ~ . / HH)) %>% 
-  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
-               names_to = "Variable", 
-               values_to = "Value_pred")
-
-output_pred <- left_join(EAdataQ_long, best_l_prediction_long, by = c("Time", "Variable"))
-
-# Ristrutturazione dei dati per avere una colonna 'Type' che distingue tra 'Value' e 'Value_pred'
-output_pred_long <- output_pred %>%
-  pivot_longer(cols = c(Value, Value_pred), 
-               names_to = "Type", 
-               values_to = "Value")
-
-ggplot(output_pred_long, aes(x = Time, y = Value, color = Type)) +
-  geom_line(size = 1.2) +  # Aumenta lo spessore delle linee per renderle più visibili
-  facet_wrap(~ Variable, scales = "free_y", ncol = 1) +  # Un grafico per ogni variabile, con una colonna per facilitare la lettura
-  scale_color_manual(values = c("blue", "red")) +  # Personalizza i colori per 'Value' e 'Value_pred'
-  labs(title = "Time Series of Variables in the Euro Area",
-       subtitle = "Actual and LASSO Predicted Values",
-       x = "Year", 
-       y = "Value",
-       color = "Type",
-       caption = "Source: Euro Area Data") +  # Aggiungi un sottotitolo e una didascalia
-  theme_minimal(base_size = 14) +  # Imposta una dimensione base per il tema
-  theme(
-    legend.position = "top",  # Posiziona la legenda in cima
-    panel.grid.major = element_line(color = "gray", linetype = "dashed", size = 0.5),  # Aggiungi linee della griglia maggiori in grigio
-    panel.grid.minor = element_blank(),  # Rimuovi la griglia minore
-    strip.background = element_rect(fill = "lightblue", color = "black", size = 1),  # Colore di sfondo per le etichette dei facetti
-    strip.text = element_text(size = 12, face = "bold"),  # Cambia la dimensione e il font delle etichette dei facetti
-    axis.title.x = element_text(size = 14, face = "bold"),  # Titolo x
-    axis.title.y = element_text(size = 14, face = "bold"),  # Titolo y
-    axis.text.x = element_text(angle = 45, hjust = 1),  # Ruota le etichette dell'asse x per migliorarne la leggibilità
-    axis.text.y = element_text(size = 12)  # Cambia la dimensione delle etichette dell'asse y
-  ) 
-
-# ---- PC ----
-
-# Verifica che `nn` contenga i nomi delle colonne corretti
-EAdataQ_long <- EAdataQ %>%
-  select(Time, all_of(nn+1)) %>%  # Seleziona la colonna Time e le colonne specificate in nn
-  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
-               names_to = "Variable", 
-               values_to = "Value")
-
-# Converti la variabile Time in formato Date per rimuovere l'informazione UTC
-time_subset <- as.Date(EAdataQ$Time[ind_first:length(RIDGE)])
-
-best_pc_prediction_long <- best_pc_prediction %>%
-  mutate(Time = time_subset)%>%  # Aggiungi la colonna Time
-  mutate(across(where(is.numeric), ~ . / HH)) %>% 
-  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
-               names_to = "Variable", 
-               values_to = "Value_pred")
-
-output_pred_r <- left_join(EAdataQ_long, best_r_prediction_long, by = c("Time", "Variable"))
-
-# Ristrutturazione dei dati per avere una colonna 'Type' che distingue tra 'Value' e 'Value_pred'
-output_pred_r_long <- output_pred_r %>%
-  pivot_longer(cols = c(Value, Value_pred), 
-               names_to = "Type", 
-               values_to = "Value")
-
-ggplot(output_pred_r_long, aes(x = Time, y = Value, color = Type)) +
-  geom_line(size = 1.2) +  # Aumenta lo spessore delle linee per renderle più visibili
-  facet_wrap(~ Variable, scales = "free_y", ncol = 1) +  # Un grafico per ogni variabile, con una colonna per facilitare la lettura
-  scale_color_manual(values = c("blue", "red")) +  # Personalizza i colori per 'Value' e 'Value_pred'
-  labs(title = "Time Series of Variables in the Euro Area",
-       subtitle = "Actual and PC Predicted Values",
-       x = "Year", 
-       y = "Value",
-       color = "Type",
-       caption = "Source: Euro Area Data") +  # Aggiungi un sottotitolo e una didascalia
-  theme_minimal(base_size = 14) +  # Imposta una dimensione base per il tema
-  theme(
-    legend.position = "top",  # Posiziona la legenda in cima
-    panel.grid.major = element_line(color = "gray", linetype = "dashed", size = 0.5),  # Aggiungi linee della griglia maggiori in grigio
-    panel.grid.minor = element_blank(),  # Rimuovi la griglia minore
-    strip.background = element_rect(fill = "lightblue", color = "black", size = 1),  # Colore di sfondo per le etichette dei facetti
-    strip.text = element_text(size = 12, face = "bold"),  # Cambia la dimensione e il font delle etichette dei facetti
-    axis.title.x = element_text(size = 14, face = "bold"),  # Titolo x
-    axis.title.y = element_text(size = 14, face = "bold"),  # Titolo y
-    axis.text.x = element_text(angle = 45, hjust = 1),  # Ruota le etichette dell'asse x per migliorarne la leggibilità
-    axis.text.y = element_text(size = 12)  # Cambia la dimensione delle etichette dell'asse y
-  ) 
-
-# ==============================================================================
-# ===================== COMPARISON IN PREDICTION VISUALIZATION =================
-# ==============================================================================
-
-# In this section are presented the out of sample performances comparison between models
-
-best_r_prediction <- best_r_prediction %>%
-  rename_with(~ paste0("r_", .), everything())
-
-best_l_prediction <- best_l_prediction %>%
-  rename_with(~ paste0("l_", .), everything())
-
-best_pc_prediction <- best_pc_prediction %>%
-  rename_with(~ paste0("pc_", .), everything())
-
-prediction_comparison_list <- list(best_r_prediction, best_l_prediction, best_pc_prediction)
-
-# Applica la sequenza come nuova colonna "Index" per ciascun data frame nella lista
-prediction_comparison_list <- lapply(prediction_comparison_list, function(df) {
-  df %>%
-    mutate(Index = (start_sample+HH):length(RIDGE)) 
-})
-
-# Ora puoi effettuare il merge usando "Index" come chiave
-prediction_comparison <- reduce(prediction_comparison_list, left_join, by = "Index")
-prediction_comparison <- prediction_comparison%>%
-  select(-Index)
-
-write_xlsx(prediction_comparison, "Results/Best Models/prediction_comparison.xlsx")
-
-prediction_comparison_long <- prediction_comparison %>%
-  mutate(Time = time_subset)%>%  # Aggiungi la colonna Time
-  mutate(across(where(is.numeric), ~ . / HH)) %>% 
-  pivot_longer(cols = -Time,        # Tutte le colonne eccetto `Time` vanno trasformate
-               names_to = "Variable", 
-               values_to = "Value_pred")
-
-
-# Espandiamo il dataset creando una riga per ogni combinazione di variabile e prefisso
-EAdataQ_long_all <- EAdataQ_long %>%
-  # Creiamo una griglia di combinazioni per ogni variabile con i prefissi
-  expand_grid(Prefix = c("pc_", "r_", "l_")) %>%
-  # Ripetiamo per ogni variabile la sequenza di prefissi
-  mutate(Variable = str_c(Prefix, rep(EAdataQ_long$Variable, each = 3))) %>%
-  # Ordinamento in base a 'Variable' e 'Time'
-  arrange(Variable, Time) %>%
-  select(-Prefix)  # Rimuoviamo la colonna 'Prefix' non più necessaria
-
-
-output_pred_comp <- left_join(EAdataQ_long_all, prediction_comparison_long, by = c("Time", "Variable"))
-output_pred_comp <- output_pred_comp %>%
-  arrange(Time)
-
-# Ristrutturazione dei dati per avere una colonna 'Type' che distingue tra 'Value' e 'Value_pred'
-output_pred_comp <- output_pred_comp %>%
-  pivot_longer(cols = c(Value, Value_pred), 
-               names_to = "Type", 
-               values_to = "Value") %>%
-  # Se desideri differenziare per 'Variable' puoi anche assicurarti di mantenere la colonna 'Variable' intatta
-  arrange(Variable, Time) 
-
-# Create different datasets for every variable to predict
-
-## GDP
-
-# Make sure the 'output_pred_comp' dataset is already filtered and in long format
-output_pred_comp_GDP <- output_pred_comp %>%
-  filter(Variable %in% c("l_GDP_EA", "pc_GDP_EA", "r_GDP_EA"))
-
-# Add a column to distinguish models in the predictions
-output_pred_comp_GDP_long <- output_pred_comp_GDP %>%
-  mutate(Model = case_when(
-    str_detect(Variable, "pc_") ~ "PC",
-    str_detect(Variable, "r_") ~ "RIDGE",
-    str_detect(Variable, "l_") ~ "LASSO",
-    TRUE ~ "Unknown"
-  ))
-
-ggplot(output_pred_comp_GDP_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
-  geom_line(size = 0.6) +  # Increase line thickness
-  labs(
-    title = "Comparison of Models for GDP in the Euro Area",
-    x = "Year",
-    y = "GDP",
-    color = "Model Type",
-    linetype = "Type"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",   # Position the legend at the bottom
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold title
-    axis.title = element_text(size = 12),  # Increase axis titles size
-    axis.text = element_text(size = 10),  # Increase axis text size
-    panel.grid = element_blank(),  # Remove gridlines for a cleaner look
-    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)  # Add a border to the plot
-  ) +
-  scale_color_manual(
-    values = c(
-      "PC.Value_pred" = "blue", 
-      "RIDGE.Value_pred" = "red", 
-      "LASSO.Value_pred" = "green",
-      "Value" = "black"
-    )
-  ) +
-  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
-
-## WS
-
-# Make sure the 'output_pred_comp' dataset is already filtered and in long format
-output_pred_comp_WS <- output_pred_comp %>%
-  filter(Variable %in% c("r_WS_EA", "pc_WS_EA", "l_WS_EA"))
-
-# Add a column to distinguish models in the predictions
-output_pred_comp_WS_long <- output_pred_comp_WS %>%
-  mutate(Model = case_when(
-    str_detect(Variable, "pc_") ~ "PC",
-    str_detect(Variable, "r_") ~ "RIDGE",
-    str_detect(Variable, "l_") ~ "LASSO",
-    TRUE ~ "Unknown"
-  ))
-
-ggplot(output_pred_comp_WS_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
-  geom_line(size = 0.6) +  # Increase line thickness
-  labs(
-    title = "Comparison of Models for WS in the Euro Area",
-    x = "Year",
-    y = "Wage and Salaries",
-    color = "Model Type",
-    linetype = "Type"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",   # Position the legend at the bottom
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold title
-    axis.title = element_text(size = 12),  # Increase axis titles size
-    axis.text = element_text(size = 10),  # Increase axis text size
-    panel.grid = element_blank(),  # Remove gridlines for a cleaner look
-    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)  # Add a border to the plot
-  ) +
-  scale_color_manual(
-    values = c(
-      "PC.Value_pred" = "blue", 
-      "RIDGE.Value_pred" = "red", 
-      "LASSO.Value_pred" = "green",
-      "Value" = "black"
-    )
-  ) +
-  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
-
-
-## PRICES
-
-# Make sure the 'output_pred_comp' dataset is already filtered and in long format
-output_pred_comp_PP <- output_pred_comp %>%
-  filter(Variable %in% c("r_PPINRG_EA", "pc_PPINRG_EA", "l_PPINRG_EA"))
-
-# Add a column to distinguish models in the predictions
-output_pred_comp_PP_long <- output_pred_comp_PP %>%
-  mutate(Model = case_when(
-    str_detect(Variable, "pc_") ~ "PC",
-    str_detect(Variable, "r_") ~ "RIDGE",
-    str_detect(Variable, "l_") ~ "LASSO",
-    TRUE ~ "Unknown"
-  ))
-
-ggplot(output_pred_comp_PP_long, aes(x = Time, y = Value, color = interaction(Model, Type), linetype = Type)) +
-  geom_line(size = 0.6) +  # Increase line thickness
-  labs(
-    title = "Comparison of Models for Energy Prices in the Euro Area",
-    x = "Year",
-    y = "GDP",
-    color = "Model Type",
-    linetype = "Type"
-  ) +
-  theme_minimal() +
-  theme(
-    legend.position = "bottom",   # Position the legend at the bottom
-    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),  # Center and bold title
-    axis.title = element_text(size = 12),  # Increase axis titles size
-    axis.text = element_text(size = 10),  # Increase axis text size
-    panel.grid = element_blank(),  # Remove gridlines for a cleaner look
-    panel.border = element_rect(color = "gray", fill = NA, size = 0.5)  # Add a border to the plot
-  ) +
-  scale_color_manual(
-    values = c(
-      "PC.Value_pred" = "blue", 
-      "RIDGE.Value_pred" = "red", 
-      "LASSO.Value_pred" = "green",
-      "Value" = "black"
-    )
-  ) +
-  scale_linetype_manual(values = c("Value" = "solid", "Value_pred" = "dashed"))
-
-
-# ==============================================================================
-# ============================ CORRELATION WITH PC =============================
-# ==============================================================================
-
-# In the following section it is presented the correlation among Ridge and LASSO 
-# forecasts with principal component forecasts taking the best number of PC. Principal
-# components and Ridge forecasts are highly correlated, particularly
-# when the prior is such that the forecasting performances are good.
-
-# RIDGE
-
-# Inizializza una matrice vuota per le migliori predizioni per ogni anno
-# Inizializza la matrice all_ridge_prediction
-all_ridge_prediction <- matrix(NA, 
-                               nrow = length(seq(from = ind_first, to = length(RIDGE))), 
-                               ncol = ncol(MSFE_RIDGE_matrix) * nrow(MSFE_RIDGE_matrix))
-
-# Assegna gli anni come nomi delle righe
-rownames(all_ridge_prediction) <- seq(from = ind_first, to = length(RIDGE))  
-
-# Assegna le variabili come nomi delle colonne (qui utilizziamo un vettore per ogni variabile)
-col_names <- unlist(lapply(1:nrow(MSFE_RIDGE_matrix), function(i) paste0(colnames(MSFE_RIDGE_matrix), "_var", i)))
-colnames(all_ridge_prediction) <- col_names
-
-# Loop per ogni anno e variabile
-for (j in seq(from = ind_first, to = length(RIDGE))) { 
-  for (i in 1:nrow(MSFE_RIDGE_matrix)) {  # Loop per ogni variabile
-    for (jfit in seq_along(INfit)) {  # Loop per ogni penalizzazione jfit
-      # Estrai la lista di predizioni per la variabile i e l'anno j con la penalizzazione jK
-      pred_blist_for_year_var <- RIDGE[[j]][[i]][[jfit]]
-      
-      # Posizione della colonna corrispondente alla variabile i
-      col_position <- (i - 1) * ncol(MSFE_RIDGE_matrix) + jfit
-      all_ridge_prediction[j - ind_first + 1, col_position] <- pred_blist_for_year_var
-    }
-  }
-}
-
-
-# Visualizza la matrice delle migliori predizioni per gli anni selezionati
-print(all_ridge_prediction)
-
-all_ridge_prediction <- as.data.frame(all_ridge_prediction)
-
-
-# use best PC prediction to compute the correlation for every variable
-
-
-# Supponiamo che il numero di variabili sia pari al numero di righe in best_pc_prediction
-n_variabili <- ncol(best_pc_prediction)
-n_penalizzazioni <- ncol(MSFE_RIDGE_matrix)  # Numero di penalizzazioni (suppongo INfit sia definito)
-
-# Inizializza la matrice delle correlazioni
-correlation_matrix_PC_RIDGE <- matrix(NA, nrow = n_variabili, ncol = n_penalizzazioni)
-
-# Assegna nomi di righe e colonne per la matrice delle correlazioni
-rownames(correlation_matrix_PC_RIDGE) <- colnames(best_pc_prediction)
-colnames(correlation_matrix_PC_RIDGE) <- paste0(colnames(MSFE_RIDGE_matrix))
-
-# Calcola le correlazioni
-for (var_idx in 1:n_variabili) {  # Per ogni variabile
-  for (pen_idx in 1:n_penalizzazioni) {  # Per ogni penalizzazione
-    # Estrai le previsioni dalla colonna corrispondente di best_pc_prediction
-    best_pc_values <- best_pc_prediction[, var_idx]
-    
-    # Estrai le previsioni dalla colonna corrispondente di all_ridge_prediction
-    ridge_values <- all_ridge_prediction[, (var_idx - 1) * n_penalizzazioni + pen_idx]
-    
-    # Calcola la correlazione e salva nella matrice
-    correlation_matrix_PC_RIDGE[var_idx, pen_idx] <- cor(best_pc_values, ridge_values, use = "complete.obs")
-  }
-}
-
-correlation_matrix_PC_RIDGE <- as.data.frame(correlation_matrix_PC_RIDGE)
-
-# Stampa la matrice delle correlazioni
-print(correlation_matrix_PC_RIDGE)
-
-# LASSO
-
-all_LASSO_prediction <- matrix(NA, 
-                               nrow = length(seq(from = ind_first, to = length(LASSO))), 
-                               ncol = ncol(MSFE_l_matrix) * nrow(MSFE_l_matrix))
-
-# Assegna gli anni come nomi delle righe
-rownames(all_LASSO_prediction) <- seq(from = ind_first, to = length(LASSO))  
-
-# Assegna le variabili come nomi delle colonne (qui utilizziamo un vettore per ogni variabile)
-col_names <- unlist(lapply(1:nrow(MSFE_l_matrix), function(i) paste0(colnames(MSFE_l_matrix), "_var", i)))
-colnames(all_LASSO_prediction) <- col_names
-
-# Loop per ogni anno e variabile
-for (j in seq(from = ind_first, to = length(LASSO))) { 
-  for (i in 1:nrow(MSFE_l_matrix)) {  # Loop per ogni variabile
-    for (jK in seq_along(K)) {  # Loop per ogni penalizzazione jK
-      # Estrai la lista di predizioni per la variabile i e l'anno j con la penalizzazione jK
-      pred_blist_for_year_var <- LASSO[[j]][[i]][[jK]]
-      
-      # Posizione della colonna corrispondente alla variabile i
-      col_position <- (i - 1) * ncol(MSFE_l_matrix) + jK
-      all_LASSO_prediction[j - ind_first + 1, col_position] <- pred_blist_for_year_var
-    }
-  }
-}
-
-
-# Visualizza la matrice delle migliori predizioni per gli anni selezionati
-print(all_LASSO_prediction)
-
-all_LASSO_prediction <- as.data.frame(all_LASSO_prediction)
-
-
-# use best PC prediction to compute the correlation for every variable
-
-
-# Supponiamo che il numero di variabili sia pari al numero di righe in best_pc_prediction
-n_variabili <- ncol(best_pc_prediction)
-n_penalizzazioni <- ncol(MSFE_l_matrix)  # Numero di penalizzazioni
-
-# Inizializza la matrice delle correlazioni
-correlation_matrix_PC_LASSO <- matrix(NA, nrow = n_variabili, ncol = n_penalizzazioni)
-
-# Assegna nomi di righe e colonne per la matrice delle correlazioni
-rownames(correlation_matrix_PC_LASSO) <- colnames(best_pc_prediction)
-colnames(correlation_matrix_PC_LASSO) <- paste0(colnames(MSFE_l_matrix))
-
-# Calcola le correlazioni
-for (var_idx in 1:n_variabili) {  # Per ogni variabile
-  for (pen_idx in 1:n_penalizzazioni) {  # Per ogni penalizzazione
-    # Estrai le previsioni dalla colonna corrispondente di best_pc_prediction
-    best_pc_values <- best_pc_prediction[, var_idx]
-    
-    # Estrai le previsioni dalla colonna corrispondente di all_ridge_prediction
-    LASSO_values <- all_ridge_prediction[, (var_idx - 1) * n_penalizzazioni + pen_idx]
-    
-    # Calcola la correlazione e salva nella matrice
-    correlation_matrix_PC_LASSO[var_idx, pen_idx] <- cor(best_pc_values, LASSO_values, use = "complete.obs")
-  }
-}
-
-correlation_matrix_PC_LASSO <- as.data.frame(correlation_matrix_PC_LASSO)
-
-# Stampa la matrice delle correlazioni
-print(correlation_matrix_PC_LASSO)

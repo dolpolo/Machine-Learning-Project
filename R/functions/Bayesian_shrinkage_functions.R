@@ -1,7 +1,3 @@
-getwd()
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project/R/functions"
-setwd(path)
-
 # **************************************************************************** #
 # *********************** BAYEASIAN SHRINKAGE FUNCTIONS ********************** #
 # **************************************************************************** #  
@@ -175,6 +171,15 @@ LASSO_pred <- function(y, x, p, nu, h) {
 }
 
 ##################################  SET LASSO ##################################
+custom_median <- function(x, na.rm = FALSE) {
+  x <- sort(x)               # Sort the vector
+  n <- length(x)             # Get the number of elements
+  if (n %% 2 == 1) {
+    return(x[(n + 1) / 2])   # Return the middle value for odd-length vectors
+  } else {
+    return(x[n / 2])         # Return the first middle value for even-length vectors
+  }
+}
 
 SET_lasso <- function(y, x, p, K, h) {
   
@@ -207,12 +212,12 @@ SET_lasso <- function(y, x, p, K, h) {
   sy <- sd(Y, na.rm = TRUE)
   y_std <- (Y - my) / sy
   
-  lasso_model <- glmnet(Z, y_std, alpha = 1, standardize=FALSE, nlambda = 1500, lambda.min.ratio=0.00001)
+  lasso_model <- glmnet(Z, y_std, alpha = 1, standardize=FALSE, nlambda = 2000, lambda.min.ratio=0.00001)
   lasso_df <- as.data.frame(cbind(lasso_model[["df"]],lasso_model[["lambda"]]))
-  if (K <= 10) {
+  if (K <= 80) {
     nu <- lasso_df %>%
       filter(V1 == K) %>%
-      filter(V2 == min(V2)) %>% 
+      filter(V2 == custom_median(V2)) %>% 
       pull(V2)  # Extract only the value of V2
   } else {
     nu <- lasso_df %>%
