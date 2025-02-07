@@ -13,7 +13,7 @@
 #################
 
 getwd()
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+path <- "C:/Users/david/Desktop/University/Machine-Learning-Project"
 setwd(path)
 
 

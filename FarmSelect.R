@@ -1,6 +1,6 @@
 # ---- Set Directory
 getwd()
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+path <- "C:/Users/david/Desktop/University/Machine-Learning-Project"
 setwd(path)
 
 # ---- Libraries 
@@ -337,7 +337,7 @@ best_FS_prediction <- as.data.frame(best_FS_prediction)
 
 
 path <- getwd()
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+path <- "C:/Users/david/Desktop/University/Machine-Learning-Project"
 
 setwd(path)
 saveRDS(best_FS_model, file = "Results/Best Models/best_FS_model.rds")

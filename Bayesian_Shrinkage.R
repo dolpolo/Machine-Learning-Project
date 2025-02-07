@@ -1,6 +1,6 @@
 # ---- SET DIRECTORY
 getwd()
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+path <- "C:/Users/david/Desktop/University/Machine-Learning-Project"
 setwd(path)
 
 
@@ -593,7 +593,7 @@ MSFE_PC_ratio <- MSFE_PC_matrix / MSFE_RW_pc_matrix
 print(MSFE_PC_ratio)
 
 getwd()
-setwd("C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project")
+setwd("C:/Users/david/Desktop/University/Machine-Learning-Project")
 saveRDS(MSFE_PC_matrix, file= "Results/MSFE/MSFE_PC_matrix.rds")
 saveRDS(MSFE_PC_ratio, file= "Results/MSFE/MSFE_PC_ratio.rds")
 
@@ -720,7 +720,7 @@ best_r_prediction <- as.data.frame(best_r_prediction)
 
 
 
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+path <- "C:/Users/david/Desktop/University/Machine-Learning-Project"
 setwd(path)
 saveRDS(best_r_model, file = "Results/Best Models/best_r_model.rds")
 saveRDS(best_r_prediction, file = "Results/Best Models/best_r_prediction.rds")
@@ -814,7 +814,7 @@ print(best_l_prediction)
 best_l_prediction <- as.data.frame(best_l_prediction)
 
 
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+path <- "C:/Users/david/Desktop/University/Machine-Learning-Project"
 setwd(path)
 saveRDS(best_l_model, file = "Results/Best Models/best_l_model.rds")
 saveRDS(best_l_prediction, file = "Results/Best Models/best_l_prediction.rds")
@@ -902,7 +902,7 @@ print(best_pc_prediction)
 best_pc_prediction <- as.data.frame(best_pc_prediction)
 
 
-path <- "C:/Users/Davide/Desktop/Alma Mater/SECOND YEAR/Machine Learning/Machine-Learning-Project"
+path <- "C:/Users/david/Desktop/University/Machine-Learning-Project"
 setwd(path)
 saveRDS(best_PC_model, file = "Results/Best Models/best_PC_model.rds")
 saveRDS(best_pc_prediction, file = "Results/Best Models/best_pc_prediction.rds")
